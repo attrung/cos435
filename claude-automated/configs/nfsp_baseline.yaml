@@ -1,0 +1,32 @@
+# NFSP Baseline with DQN best-response
+# Heinrich & Silver (2016) hyperparameters for Leduc poker
+
+experiment_name: nfsp_baseline
+agent_type: nfsp
+
+# NFSP parameters
+eta: 0.1  # anticipatory parameter
+
+# DQN best-response parameters
+dqn_lr: 0.1
+gamma: 1.0
+dqn_epsilon: 0.06
+dqn_buffer_size: 200000
+target_update_freq: 1000
+
+# Average policy parameters
+avg_policy_lr: 0.01
+reservoir_buffer_size: 2000000
+
+# Network architecture
+hidden_size: 128
+
+# Training parameters
+batch_size: 128
+num_episodes: 10000000
+eval_freq: 250000
+checkpoint_freq: 100000
+
+# Paths
+log_dir: results/logs
+checkpoint_dir: results/checkpoints

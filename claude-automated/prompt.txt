@@ -1,0 +1,126 @@
+Read CLAUDE.md carefully. This project may have been partially started — check what files already exist and what state the code is in before doing anything. Pick up where things left off. Do not ask me any questions — make reasonable decisions and keep going. Commit and push to git after each major milestone. Use the environment "main" if not already in it.
+
+CRITICAL WORKFLOW: You write all code and run SHORT tests only (smoke tests under 5 minutes). For any training that takes longer than 5 minutes, create a self-contained bash script that I can run myself. Do NOT run long training jobs yourself — you will time out.
+
+CRITICAL: This project uses CPU ONLY. No GPU. Set CUDA_VISIBLE_DEVICES="" and torch.set_num_threads(15) in every script. The GPU is reserved for the other project.
+
+PHASE 1 — SETUP (skip if already done):
+- Check what already exists. Skip anything already implemented.
+- Create requirements.txt and install dependencies (use CPU-only PyTorch: pip3 install torch --index-url https://download.pytorch.org/whl/cpu).
+- Install open-spiel: pip3 install open-spiel.
+- Create the full project structure from CLAUDE.md.
+- Create a .gitignore file.
+- Create notes/speedup_notes.md and notes/research_observations.md with initial headers.
+- Verify OpenSpiel Leduc poker works: create a game, print info states, verify exploitability computation works.
+- Commit and push with message "project setup complete".
+
+PHASE 2 — IMPLEMENT ALL CODE:
+- Implement src/agents/dqn.py: standard DQN with target network, epsilon-greedy, experience replay.
+- Implement src/agents/iqn.py: Implicit Quantile Network.
+  - Cosine embedding layer for quantile τ ~ U(0,1)
+  - Quantile Huber loss
+  - Action selection: sample K=32 quantiles, average for risk-neutral
+  - Support risk distortion functions: CVaR (risk-averse), anti-CVaR (risk-seeking)
+- Implement src/agents/average_policy.py: supervised learning network for average policy (trained on reservoir buffer).
+- Implement src/agents/nfsp_agent.py: combines best-response (DQN or IQN) and average policy. Implements anticipatory parameter η. Config flag to choose DQN vs IQN as the best-response learner.
+- Implement src/utils/replay_buffer.py: circular replay buffer for RL + reservoir sampling buffer for average policy. Use numpy arrays for efficiency.
+- Implement src/environments/leduc.py: wrapper around OpenSpiel's Leduc poker.
+- Implement src/training/evaluator.py: compute exploitability using OpenSpiel.
+- Implement src/training/self_play.py: single-process self-play training loop.
+- Implement src/training/parallel_self_play.py: multi-process parallel self-play with 15 workers. Workers play games independently, send experiences via multiprocessing.Queue. Main process does network updates and broadcasts weights.
+- Implement src/train.py: main entry point with config loading. Support --parallel flag.
+
+TRAINING LOGGING (build into self_play.py and parallel_self_play.py):
+- Print every 1,000 episodes: [Episode X/Total] avg_reward=X.XX | exploitability=X.XXXX | br_loss=X.XXXX | avg_pol_loss=X.XXXX | eps/sec=X.X | elapsed=XXm
+- Compute exploitability every 50,000 episodes (it's expensive).
+- Write all logs to results/logs/<experiment_name>.log
+
+PHASE 3 — CREATE ALL CONFIG FILES:
+- configs/nfsp_baseline.yaml: DQN best-response, hyperparameters from Heinrich & Silver 2016 (η=0.1, dqn_lr=0.1, avg_lr=0.01, rl_buffer=200000, sl_buffer=2000000, batch=128, target_update=1000, epsilon=0.06, gamma=1.0, episodes=10000000)
+- configs/nfsp_iqn.yaml: IQN best-response (risk-neutral), same NFSP hyperparameters
+- configs/nfsp_iqn_risk_averse.yaml: IQN with CVaR α=0.25
+- configs/nfsp_iqn_risk_seeking.yaml: IQN with anti-CVaR top 25%
+
+PHASE 4 — SMOKE TEST:
+- Run baseline NFSP (single-process) for 10,000 episodes. Verify exploitability decreases. Should take < 2 minutes.
+- Run parallel version for 10,000 episodes. Verify it also works and is faster.
+- Run IQN variant for 10,000 episodes. Verify it works.
+- Commit and push with message "all code implemented + smoke tests passing".
+
+PHASE 5 — CREATE TRAINING SCRIPTS:
+
+Create scripts/run_all_experiments.sh:
+```bash
+#!/bin/bash
+set -e
+export CUDA_VISIBLE_DEVICES=""
+
+echo "=== MEASURING SPEEDUP: single vs parallel ==="
+echo "Running 100,000 episodes single-process..."
+time python3 src/train.py --config configs/nfsp_baseline.yaml --max_episodes 100000 2>&1 | tee results/logs/speedup_single.log
+
+echo "Running 100,000 episodes parallel (15 workers)..."
+time python3 src/train.py --config configs/nfsp_baseline.yaml --max_episodes 100000 --parallel 2>&1 | tee results/logs/speedup_parallel.log
+
+echo "=== BASELINE NFSP-DQN (full training) ==="
+python3 src/train.py --config configs/nfsp_baseline.yaml --parallel 2>&1 | tee results/logs/nfsp_baseline.log
+
+echo "=== NFSP-IQN RISK-NEUTRAL ==="
+python3 src/train.py --config configs/nfsp_iqn.yaml --parallel 2>&1 | tee results/logs/nfsp_iqn_neutral.log
+
+echo "=== NFSP-IQN RISK-AVERSE ==="
+python3 src/train.py --config configs/nfsp_iqn_risk_averse.yaml --parallel 2>&1 | tee results/logs/nfsp_iqn_averse.log
+
+echo "=== NFSP-IQN RISK-SEEKING ==="
+python3 src/train.py --config configs/nfsp_iqn_risk_seeking.yaml --parallel 2>&1 | tee results/logs/nfsp_iqn_seeking.log
+
+echo "=== ALL EXPERIMENTS COMPLETE ==="
+```
+
+Create scripts/run_single.sh:
+```bash
+#!/bin/bash
+# Usage: ./scripts/run_single.sh <config_file> [--parallel]
+# Example: ./scripts/run_single.sh configs/nfsp_baseline.yaml --parallel
+export CUDA_VISIBLE_DEVICES=""
+python3 src/train.py --config "$1" ${2:+--parallel} 2>&1 | tee "results/logs/$(basename $1 .yaml).log"
+```
+
+Create scripts/generate_results.sh that:
+- Reads all log files
+- Extracts final exploitability values
+- Creates results/full_comparison.md
+- Generates plots comparing all exploitability curves
+- Updates notes/speedup_notes.md with the single vs parallel speedup measurement
+
+Make all scripts executable (chmod +x).
+
+PHASE 6 — DOCUMENTATION:
+- Write initial notes/speedup_notes.md documenting:
+  - Parallel self-play strategy (15 workers, queue-based communication)
+  - Batched network updates
+  - Efficient numpy-based replay buffers
+  - Reduced evaluation frequency (every 50,000 episodes)
+  - Placeholder for measured speedup (to be filled after running)
+- Write initial notes/research_observations.md with sections for:
+  - Baseline NFSP convergence behavior
+  - IQN vs DQN comparison
+  - Risk-sensitive agent behavior analysis
+  - Placeholder sections to be filled after running
+
+PHASE 7 — FINAL CHECKS:
+- Verify all scripts are executable and reference correct paths.
+- Run a quick dry-run of run_single.sh with --max_episodes 5000 to confirm it works.
+- Commit and push with message "all code and training scripts ready to run".
+- Print a final summary of what I need to do:
+  1. Which scripts to run
+  2. Expected training time per experiment
+  3. How to monitor progress (tail -f results/logs/*.log)
+
+IMPORTANT CONSTRAINTS:
+- CPU ONLY. No GPU. torch.set_num_threads(15).
+- Use original NFSP hyperparameters from Heinrich & Silver 2016. Do not tune.
+- Do NOT run any training longer than 5 minutes yourself. Create scripts instead.
+- Document all speedup decisions in notes/speedup_notes.md.
+- Document all research observations in notes/research_observations.md.
+- Commit and push after completing all code.

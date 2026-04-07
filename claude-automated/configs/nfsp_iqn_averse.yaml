@@ -1,0 +1,41 @@
+# NFSP with IQN best-response (risk-averse, CVaR alpha=0.25)
+
+experiment_name: nfsp_iqn_averse
+agent_type: nfsp_iqn
+
+# NFSP parameters
+eta: 0.1
+
+# IQN best-response parameters
+dqn_lr: 0.1
+gamma: 1.0
+dqn_epsilon: 0.06
+dqn_buffer_size: 200000
+target_update_freq: 1000
+
+# IQN-specific parameters
+iqn_num_quantiles: 8
+iqn_num_quantiles_eval: 32
+iqn_embedding_dim: 64
+iqn_kappa: 1.0
+
+# Risk distortion - CVaR focuses on worst-case quantiles
+risk_distortion: cvar
+cvar_alpha: 0.25
+
+# Average policy parameters
+avg_policy_lr: 0.01
+reservoir_buffer_size: 2000000
+
+# Network architecture
+hidden_size: 128
+
+# Training parameters
+batch_size: 128
+num_episodes: 10000000
+eval_freq: 250000
+checkpoint_freq: 100000
+
+# Paths
+log_dir: results/logs
+checkpoint_dir: results/checkpoints

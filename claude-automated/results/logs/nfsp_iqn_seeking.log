@@ -1,0 +1,48 @@
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Training nfsp_iqn_seeking | seed=42 | 10,000,000 episodes | mode=parallel (18 workers)
+Eval every 50,000 | Log every 20,000 | Device: cpu
+===============================================================================================
+nfsp_iqn_seeking:   0%|          | 0/10000000 [00:00<?, ?ep/s]Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+Optional module pokerkit_wrapper was not importable: No module named 'pokerkit'
+nfsp_iqn_seeking:   0%|          | 10/10000000 [00:22<6218:59:19,  2.24s/ep]nfsp_iqn_seeking:   0%|          | 500/10000000 [00:24<129:25:06, 21.46ep/s]nfsp_iqn_seeking:   0%|          | 500/10000000 [00:24<135:48:31, 20.45ep/s]
+Traceback (most recent call last):
+  File "/workspace/cos435/claude-automated/src/train.py", line 521, in <module>
+  File "/workspace/cos435/claude-automated/src/train.py", line 514, in main
+  File "/workspace/cos435/claude-automated/src/train.py", line 422, in train_parallel
+  File "/venv/main/lib/python3.10/multiprocessing/queues.py", line 371, in put
+  File "/venv/main/lib/python3.10/multiprocessing/reduction.py", line 51, in dumps
+  File "/venv/main/lib/python3.10/site-packages/torch/multiprocessing/reductions.py", line 619, in reduce_storage
+  File "/venv/main/lib/python3.10/multiprocessing/reduction.py", line 198, in DupFd
+  File "/venv/main/lib/python3.10/multiprocessing/resource_sharer.py", line 48, in __init__
+OSError: [Errno 24] Too many open files
+Traceback (most recent call last):
+  File "/venv/main/lib/python3.10/weakref.py", line 667, in _exitfunc
+  File "/venv/main/lib/python3.10/weakref.py", line 591, in __call__
+  File "/venv/main/lib/python3.10/tempfile.py", line 868, in _cleanup
+  File "/venv/main/lib/python3.10/tempfile.py", line 864, in _rmtree
+  File "/venv/main/lib/python3.10/shutil.py", line 721, in rmtree
+  File "/venv/main/lib/python3.10/shutil.py", line 718, in rmtree
+OSError: [Errno 24] Too many open files: '/tmp/tmpusopd62x'
+Traceback (most recent call last):
+  File "/venv/main/lib/python3.10/multiprocessing/util.py", line 300, in _run_finalizers
+  File "/venv/main/lib/python3.10/multiprocessing/util.py", line 224, in __call__
+  File "/venv/main/lib/python3.10/multiprocessing/util.py", line 133, in _remove_temp_dir
+  File "/venv/main/lib/python3.10/shutil.py", line 721, in rmtree
+  File "/venv/main/lib/python3.10/shutil.py", line 718, in rmtree
+OSError: [Errno 24] Too many open files: '/tmp/pymp-s_liewc0'
