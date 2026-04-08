@@ -17,7 +17,7 @@ import logging
 logging.disable(logging.WARNING)
 
 import torch
-torch.set_num_threads(18)
+torch.set_num_threads(15)
 
 import argparse
 import time
@@ -325,13 +325,16 @@ def _unpack_and_feed(packed, agents):
             )
 
 
-def _player_gradient_thread_fn(player_id, agent, grad_queue, grad_stop,
+def _player_gradient_thread_fn(player_id, agent, grad_stop,
                                loss_accumulator, loss_lock, pause_event,
                                pause_ack):
-    """Gradient thread for a single player. Two of these run in parallel.
+    """Gradient thread for a single player. Runs updates CONTINUOUSLY.
 
     Player 0 and Player 1 have independent networks/buffers, so their
-    gradient updates can run truly concurrently (torch releases GIL).
+    gradient updates run truly concurrently (torch releases GIL).
+
+    The thread loops as fast as possible doing gradient updates — this matches
+    single-process behavior where every episode triggers an update.
     """
     while not grad_stop.is_set():
         # Pause during exploitability eval / checkpointing for consistent reads
@@ -341,30 +344,19 @@ def _player_gradient_thread_fn(player_id, agent, grad_queue, grad_stop,
             continue
         pause_ack.clear()  # we are running
 
-        # Drain queue but cap at 20 updates to avoid unbounded backlog
-        num_updates = 0
-        try:
-            while num_updates < 20:
-                num_updates += grad_queue.get_nowait()
-        except queue_mod.Empty:
-            pass
-        if num_updates == 0:
-            num_updates = 2  # opportunistic updates
-
-        for _ in range(num_updates):
-            if grad_stop.is_set() or not pause_event.is_set():
-                break
-            losses = agent.update()
-            if losses[0] is not None:
-                with loss_lock:
-                    loss_accumulator[f'br_loss_{player_id}'] += losses[0]
-                    loss_accumulator[f'count_{player_id}'] += 1
+        # Do one gradient update (agent.update checks buffer size internally)
+        losses = agent.update()
+        if losses[0] is not None:
+            with loss_lock:
+                loss_accumulator[f'br_loss_{player_id}'] += losses[0]
+                loss_accumulator[f'count_{player_id}'] += 1
+                loss_accumulator[f'updates_{player_id}'] += 1
             if losses[1] is not None:
                 with loss_lock:
                     loss_accumulator[f'avg_loss_{player_id}'] += losses[1]
-
-        with loss_lock:
-            loss_accumulator[f'updates_{player_id}'] += num_updates
+        else:
+            # Buffer not full enough yet, sleep briefly to avoid busy-waiting
+            time.sleep(0.001)
 
 
 def _weight_sync_thread_fn(agents, grad_stop, loss_accumulator, loss_lock,
@@ -407,8 +399,7 @@ def train_parallel(config, seed, device, max_episodes=None, num_workers=18):
     checkpoint_dir = config.get('checkpoint_dir', 'results/checkpoints')
     log_freq = 100000
     episodes_per_batch = 50
-    updates_per_collect = 4  # gradient updates requested per drained batch
-    weight_sync_freq = 100  # gradient thread syncs weights every N updates
+    weight_sync_freq = 100  # weight sync thread syncs weights every N updates
 
     set_seed(seed)
     torch.set_num_threads(4)
@@ -443,7 +434,8 @@ def train_parallel(config, seed, device, max_episodes=None, num_workers=18):
     # --- Two gradient threads (one per player) + weight sync thread ---
     # Player 0 and Player 1 have independent networks/buffers, so their
     # gradient updates run truly concurrently (torch releases GIL).
-    grad_queues = [queue_mod.Queue() for _ in range(2)]
+    # Threads run CONTINUOUSLY — no queue throttling. This matches single-process
+    # where every episode gets a gradient update.
     grad_stop = threading.Event()
     grad_pause = threading.Event()
     grad_pause.set()  # start unpaused (set = running, clear = paused)
@@ -458,7 +450,7 @@ def train_parallel(config, seed, device, max_episodes=None, num_workers=18):
     for p in range(2):
         t = threading.Thread(
             target=_player_gradient_thread_fn,
-            args=(p, agents[p], grad_queues[p], grad_stop,
+            args=(p, agents[p], grad_stop,
                   loss_accumulator, loss_lock, grad_pause, grad_acks[p]),
             daemon=True,
         )
@@ -530,11 +522,7 @@ def train_parallel(config, seed, device, max_episodes=None, num_workers=18):
                 sync_thread.start()
                 grad_threads_started = True
 
-            # Signal both gradient threads: process this many updates each
-            if grad_threads_started:
-                n = updates_per_collect * len(results_batch)
-                for q in grad_queues:
-                    q.put(n)
+            # Gradient threads run continuously — no signaling needed
 
             # Periodic logging
             if ep_since_log >= log_freq:
