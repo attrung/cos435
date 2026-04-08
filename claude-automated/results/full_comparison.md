@@ -6,13 +6,19 @@ Generated automatically.
 
 | Experiment | Final Exploitability | Min Exploitability | Episodes |
 |---|---|---|---|
-| nfsp_baseline_seed42 | 0.213500 | 0.203910 | 10,000,000 |
-| nfsp_iqn_neutral_seed42 | 0.271253 | 0.255977 | 10,000,000 |
+| nfsp_baseline_seed42 | 0.359955 | 0.239097 | 3,000,000 |
+| nfsp_iqn_averse_seed42 | 0.704781 | 0.580970 | 3,000,000 |
+| nfsp_iqn_mean_var_05_seed42 | 2.020971 | 1.596549 | 3,000,000 |
+| nfsp_iqn_mean_var_seed42 | 0.567435 | 0.485925 | 3,000,000 |
+| nfsp_iqn_neutral_seed42 | 0.284204 | 0.284204 | 3,000,000 |
 
 ## Training Speed
 
-- **nfsp_baseline_seed42**: avg 651 eps/sec, total 258.5 min
-- **nfsp_iqn_neutral_seed42**: avg 450 eps/sec, total 371.7 min
+- **nfsp_baseline_seed42**: avg 225 eps/sec, total 230.5 min
+- **nfsp_iqn_averse_seed42**: avg 111 eps/sec, total 455.3 min
+- **nfsp_iqn_mean_var_05_seed42**: avg 109 eps/sec, total 471.0 min
+- **nfsp_iqn_mean_var_seed42**: avg 110 eps/sec, total 462.2 min
+- **nfsp_iqn_neutral_seed42**: avg 108 eps/sec, total 476.0 min
 
 ## Figures
 

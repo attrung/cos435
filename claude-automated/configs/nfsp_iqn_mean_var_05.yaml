@@ -1,6 +1,8 @@
-# NFSP with IQN best-response (risk-neutral)
+# NFSP with IQN best-response (mean-variance utility)
+# Action selection: argmax (E[Q] - A * Var[Q]) where A = variance_penalty
+# Analogous to Markowitz portfolio optimization
 
-experiment_name: nfsp_iqn_neutral
+experiment_name: nfsp_iqn_mean_var_05
 agent_type: nfsp_iqn
 
 # NFSP parameters
@@ -14,13 +16,16 @@ dqn_buffer_size: 200000
 target_update_freq: 1000
 
 # IQN-specific parameters
-iqn_num_quantiles: 8       # N for training
-iqn_num_quantiles_eval: 32  # K for action selection
+iqn_num_quantiles: 8
+iqn_num_quantiles_eval: 32
 iqn_embedding_dim: 64
 iqn_kappa: 1.0
 
-# Risk distortion
+# Risk distortion - none (uses uniform tau, variance penalty handles risk)
 risk_distortion: none
+
+# Mean-variance: Q_adj = E[Q] - 0.5 * Var[Q]
+variance_penalty: 0.5
 
 # Average policy parameters
 avg_policy_lr: 0.01

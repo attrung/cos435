@@ -32,8 +32,9 @@ hidden_size: 128
 
 # Training parameters
 batch_size: 128
-num_episodes: 10000000
-eval_freq: 250000
+lr_decay_min: 0.1  # anneal lr to 10% of initial over training
+num_episodes: 3000000
+eval_freq: 10000
 checkpoint_freq: 100000
 
 # Paths

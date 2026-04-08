@@ -24,8 +24,8 @@ iqn_kappa: 1.0
 # Risk distortion - none (uses uniform tau, variance penalty handles risk)
 risk_distortion: none
 
-# Mean-variance: Q_adj = E[Q] - 0.5 * Var[Q]
-variance_penalty: 0.5
+# Mean-variance: Q_adj = E[Q] - 0.1 * Var[Q]
+variance_penalty: 0.1
 
 # Average policy parameters
 avg_policy_lr: 0.01
@@ -36,8 +36,9 @@ hidden_size: 128
 
 # Training parameters
 batch_size: 128
-num_episodes: 10000000
-eval_freq: 250000
+lr_decay_min: 0.1  # anneal lr to 10% of initial over training
+num_episodes: 3000000
+eval_freq: 10000
 checkpoint_freq: 100000
 
 # Paths

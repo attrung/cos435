@@ -4,13 +4,12 @@ Implements Implicit Quantile Networks (Dabney et al., 2018) to replace DQN.
 """
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
 from src.networks import IQNNetwork
 from src.replay_buffer import CircularReplayBuffer
-from src.risk_distortion import get_distortion_fn, identity
+from src.risk_distortion import get_distortion_fn
 
 
 class IQNAgent:
@@ -25,8 +24,8 @@ class IQNAgent:
         self.device = device
 
         # IQN-specific params
-        self.num_quantile_samples = config.get('iqn_num_quantiles', 8)  # N for training
-        self.num_quantile_eval = config.get('iqn_num_quantiles_eval', 32)  # K for action selection
+        self.num_quantile_samples = config.get('iqn_num_quantiles', 8)
+        self.num_quantile_eval = config.get('iqn_num_quantiles_eval', 32)
         self.embedding_dim = config.get('iqn_embedding_dim', 64)
         self.kappa = config.get('iqn_kappa', 1.0)
 
@@ -46,7 +45,7 @@ class IQNAgent:
         # Optimizer - SGD to match baseline
         self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr)
 
-        # Replay buffer (numpy-backed for fast sampling)
+        # Replay buffer
         buffer_size = config.get('dqn_buffer_size', 200000)
         self.buffer = CircularReplayBuffer(buffer_size, state_size, num_actions)
 
@@ -70,22 +69,17 @@ class IQNAgent:
 
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            # Sample K uniform quantiles, then distort
             taus = torch.rand(1, self.num_quantile_eval, device=self.device)
             taus = self.distortion_fn(taus)
-            # (1, K, num_actions)
             quantile_values = self.network(state_tensor, taus)
 
             if self.variance_penalty > 0:
-                # Mean-variance utility
                 q_mean = quantile_values.mean(dim=1).squeeze(0)
                 q_var = quantile_values.var(dim=1).squeeze(0)
                 q_values = q_mean - self.variance_penalty * q_var
             else:
-                # Standard: average over quantiles
                 q_values = quantile_values.mean(dim=1).squeeze(0)
 
-            # Mask illegal actions
             legal_mask = torch.full((self.num_actions,), float('-inf'), device=self.device)
             for a in legal_actions:
                 legal_mask[a] = 0.0
@@ -96,24 +90,23 @@ class IQNAgent:
         self.buffer.add(state, action, reward, next_state, done, legal_actions_mask)
 
     def update(self):
-        """IQN quantile Huber loss update."""
+        """IQN quantile Huber loss update. Returns loss value or None."""
         if len(self.buffer) < self.batch_size:
             return None
 
         states, actions, rewards, next_states, dones, legal_masks = self.buffer.sample(self.batch_size)
 
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.LongTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).to(self.device)
-        legal_masks = torch.FloatTensor(legal_masks).to(self.device)
+        states = torch.from_numpy(states)
+        actions = torch.from_numpy(actions)
+        rewards = torch.from_numpy(rewards)
+        next_states = torch.from_numpy(next_states)
+        dones = torch.from_numpy(dones)
+        legal_masks = torch.from_numpy(legal_masks)
 
-        batch_size = states.shape[0]
         N = self.num_quantile_samples
 
         # Sample quantiles for current state
-        taus = torch.rand(batch_size, N, device=self.device)
+        taus = torch.rand(self.batch_size, N, device=self.device)
 
         # Current quantile values: (batch_size, N, num_actions)
         current_quantiles = self.network(states, taus)
@@ -124,14 +117,13 @@ class IQNAgent:
 
         # Target quantile values
         with torch.no_grad():
-            taus_target = torch.rand(batch_size, N, device=self.device)
-            # (batch_size, N, num_actions)
+            taus_target = torch.rand(self.batch_size, N, device=self.device)
             next_quantiles = self.target_network(next_states, taus_target)
 
             # Best action from next state (average over quantiles)
-            next_q_avg = next_quantiles.mean(dim=1)  # (batch_size, num_actions)
+            next_q_avg = next_quantiles.mean(dim=1)
             next_q_avg = next_q_avg + (legal_masks - 1.0) * 1e9
-            best_actions = next_q_avg.argmax(dim=1)  # (batch_size,)
+            best_actions = next_q_avg.argmax(dim=1)
 
             # Gather target quantiles for best action: (batch_size, N)
             next_quantiles = next_quantiles.gather(
@@ -142,18 +134,16 @@ class IQNAgent:
             targets = rewards.unsqueeze(1) + self.gamma * (1 - dones.unsqueeze(1)) * next_quantiles
 
         # Quantile Huber loss
-        # current: (batch_size, N, 1), targets: (batch_size, 1, N)
         td_errors = targets.unsqueeze(1) - current_quantiles.unsqueeze(2)  # (batch_size, N, N)
         huber_loss = torch.where(
             td_errors.abs() <= self.kappa,
             0.5 * td_errors ** 2,
             self.kappa * (td_errors.abs() - 0.5 * self.kappa)
         )
-        # taus: (batch_size, N, 1)
         tau_weights = (taus.unsqueeze(2) - (td_errors.detach() < 0).float()).abs()
-        loss = (tau_weights * huber_loss).sum(dim=2).mean(dim=1).mean()
+        loss = (tau_weights * huber_loss).mean(dim=2).mean(dim=1).mean()
 
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.optimizer.step()
 

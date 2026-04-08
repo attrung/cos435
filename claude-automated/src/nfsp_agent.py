@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import copy
 
 from src.networks import MLP
 from src.replay_buffer import CircularReplayBuffer, ReservoirBuffer
@@ -49,17 +48,21 @@ class NFSPAgent:
         self.q_optimizer = torch.optim.SGD(self.q_network.parameters(), lr=self.dqn_lr)
         self.avg_optimizer = torch.optim.SGD(self.avg_policy_network.parameters(), lr=self.avg_lr)
 
-        # Replay buffers (numpy-backed for fast sampling)
+        # Replay buffers
         dqn_buffer_size = config.get('dqn_buffer_size', 200000)
         reservoir_buffer_size = config.get('reservoir_buffer_size', 2000000)
         self.dqn_buffer = CircularReplayBuffer(dqn_buffer_size, state_size, num_actions)
         self.reservoir_buffer = ReservoirBuffer(reservoir_buffer_size, state_size)
 
+        # LR decay
+        self.dqn_lr_init = self.dqn_lr
+        self.avg_lr_init = self.avg_lr
+        self.lr_decay_min = config.get('lr_decay_min', 1.0)  # 1.0 = no decay
+
         # Counters
         self.train_steps = 0
-        self._mode = None  # 'best_response' or 'average_policy'
 
-        # Pre-allocate reusable tensors for action selection (single sample)
+        # Pre-allocate reusable tensors for action selection
         self._state_buf = torch.zeros(1, state_size, device=device)
         self._legal_mask_buf = torch.full((num_actions,), float('-inf'), device=device)
 
@@ -69,10 +72,8 @@ class NFSPAgent:
             return self._avg_policy_action(state, legal_actions), 'average_policy'
 
         if np.random.random() < self.eta:
-            self._mode = 'best_response'
             return self._dqn_action(state, legal_actions), 'best_response'
         else:
-            self._mode = 'average_policy'
             return self._avg_policy_action(state, legal_actions), 'average_policy'
 
     def _dqn_action(self, state, legal_actions):
@@ -105,20 +106,12 @@ class NFSPAgent:
         """Add transition to DQN buffer."""
         self.dqn_buffer.add(state, action, reward, next_state, done, legal_actions_mask)
 
-    def add_transition_batch(self, states, actions, rewards, next_states, dones, legal_masks):
-        """Add batch of transitions to DQN buffer."""
-        self.dqn_buffer.add_batch(states, actions, rewards, next_states, dones, legal_masks)
-
     def add_reservoir(self, state, action):
         """Add (state, action) to reservoir buffer for average policy training."""
         self.reservoir_buffer.add(state, action)
 
-    def add_reservoir_batch(self, states, actions):
-        """Add batch of (state, action) pairs to reservoir buffer."""
-        self.reservoir_buffer.add_batch(states, actions)
-
     def update(self):
-        """Update both DQN and average policy networks."""
+        """Update both DQN and average policy networks. Returns (dqn_loss, avg_loss)."""
         dqn_loss = self._update_dqn()
         avg_loss = self._update_avg_policy()
         self.train_steps += 1
@@ -135,12 +128,12 @@ class NFSPAgent:
 
         states, actions, rewards, next_states, dones, legal_masks = self.dqn_buffer.sample(self.batch_size)
 
-        states = torch.as_tensor(states, device=self.device)
-        actions = torch.as_tensor(actions, device=self.device)
-        rewards = torch.as_tensor(rewards, device=self.device)
-        next_states = torch.as_tensor(next_states, device=self.device)
-        dones = torch.as_tensor(dones, device=self.device)
-        legal_masks = torch.as_tensor(legal_masks, device=self.device)
+        states = torch.from_numpy(states)
+        actions = torch.from_numpy(actions)
+        rewards = torch.from_numpy(rewards)
+        next_states = torch.from_numpy(next_states)
+        dones = torch.from_numpy(dones)
+        legal_masks = torch.from_numpy(legal_masks)
 
         # Current Q values
         q_values = self.q_network(states)
@@ -155,7 +148,7 @@ class NFSPAgent:
 
         loss = F.mse_loss(q_values, targets)
 
-        self.q_optimizer.zero_grad()
+        self.q_optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.q_optimizer.step()
 
@@ -168,17 +161,28 @@ class NFSPAgent:
 
         states, actions = self.reservoir_buffer.sample(self.batch_size)
 
-        states = torch.as_tensor(states, device=self.device)
-        actions = torch.as_tensor(actions, device=self.device)
+        states = torch.from_numpy(states)
+        actions = torch.from_numpy(actions)
 
         logits = self.avg_policy_network(states)
         loss = F.cross_entropy(logits, actions)
 
-        self.avg_optimizer.zero_grad()
+        self.avg_optimizer.zero_grad(set_to_none=True)
         loss.backward()
         self.avg_optimizer.step()
 
         return loss.item()
+
+    def set_lr(self, progress):
+        """Set learning rate based on training progress (0.0 to 1.0).
+
+        Linearly anneals from initial lr to initial lr * lr_decay_min.
+        """
+        factor = 1.0 - (1.0 - self.lr_decay_min) * progress
+        for pg in self.q_optimizer.param_groups:
+            pg['lr'] = self.dqn_lr_init * factor
+        for pg in self.avg_optimizer.param_groups:
+            pg['lr'] = self.avg_lr_init * factor
 
     def get_avg_policy_probs(self, state, legal_actions):
         """Get average policy action probabilities for exploitability computation."""
@@ -193,7 +197,6 @@ class NFSPAgent:
             return probs.cpu().numpy()
 
     def get_state_dict(self):
-        """Get state dict for checkpointing."""
         return {
             'q_network': self.q_network.state_dict(),
             'target_network': self.target_network.state_dict(),
@@ -204,7 +207,6 @@ class NFSPAgent:
         }
 
     def load_state_dict(self, checkpoint):
-        """Load state dict from checkpoint."""
         self.q_network.load_state_dict(checkpoint['q_network'])
         self.target_network.load_state_dict(checkpoint['target_network'])
         self.avg_policy_network.load_state_dict(checkpoint['avg_policy_network'])
