@@ -1,6 +1,7 @@
 """IQN-based best-response module for NFSP.
 
 Implements Implicit Quantile Networks (Dabney et al., 2018) to replace DQN.
+Target network updates are handled externally by the parent NFSP agent.
 """
 
 import torch
@@ -16,6 +17,8 @@ class IQNAgent:
     """IQN best-response agent that replaces DQN in NFSP.
 
     Learns quantile function Q_tau(s,a) instead of scalar Q(s,a).
+    Target network updates are NOT handled internally — the parent
+    NFSPIQNAgent calls soft_update_target() based on game step count.
     """
 
     def __init__(self, state_size, num_actions, config, device):
@@ -30,11 +33,10 @@ class IQNAgent:
         self.kappa = config.get('iqn_kappa', 1.0)
 
         # Standard params
-        self.epsilon = config.get('dqn_epsilon', 0.06)
         self.gamma = config.get('gamma', 1.0)
-        self.lr = config.get('dqn_lr', 0.1)
+        self.lr = config.get('dqn_lr', 0.01)
         self.batch_size = config.get('batch_size', 128)
-        self.target_update_freq = config.get('target_update_freq', 1000)
+        self.min_buffer_size_to_learn = config.get('min_buffer_size_to_learn', 1000)
         hidden_size = config.get('hidden_size', 128)
 
         # Networks
@@ -42,8 +44,14 @@ class IQNAgent:
         self.target_network = IQNNetwork(state_size, hidden_size, num_actions, self.embedding_dim).to(device)
         self.target_network.load_state_dict(self.network.state_dict())
 
-        # Optimizer - SGD to match baseline
-        self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr)
+        # Optimizer - Adam for IQN (quantile loss landscape is harder than MSE)
+        optimizer_str = config.get('iqn_optimizer', 'adam')
+        if optimizer_str == 'adam':
+            self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        elif optimizer_str == 'sgd':
+            self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr)
+        else:
+            raise ValueError(f'Unknown optimizer: {optimizer_str}')
 
         # Replay buffer
         buffer_size = config.get('dqn_buffer_size', 200000)
@@ -55,16 +63,18 @@ class IQNAgent:
         # Mean-variance utility: Q_adj = E[Q] - variance_penalty * Var[Q]
         self.variance_penalty = config.get('variance_penalty', 0.0)
 
-        self.train_steps = 0
-
-    def select_action(self, state, legal_actions):
+    def select_action(self, state, legal_actions, epsilon):
         """Select action using quantile samples.
 
-        Risk-neutral: argmax E[Q_tau(s,a)]
-        CVaR/seeking: distort tau, then argmax E[Q_tau(s,a)]
-        Mean-variance: argmax (E[Q] - A * Var[Q])
+        Args:
+            state: info state array
+            legal_actions: list of legal action indices
+            epsilon: current exploration rate
+
+        Returns:
+            action: selected action index
         """
-        if np.random.random() < self.epsilon:
+        if np.random.random() < epsilon:
             return np.random.choice(legal_actions)
 
         with torch.no_grad():
@@ -86,12 +96,43 @@ class IQNAgent:
             q_values = q_values + legal_mask
             return q_values.argmax().item()
 
+    def select_action_with_probs(self, state, legal_actions, epsilon):
+        """Select action and return probability vector for reservoir storage."""
+        probs = np.zeros(self.num_actions, dtype=np.float32)
+
+        if np.random.random() < epsilon:
+            action = np.random.choice(legal_actions)
+            for a in legal_actions:
+                probs[a] = 1.0 / len(legal_actions)
+        else:
+            with torch.no_grad():
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                taus = torch.rand(1, self.num_quantile_eval, device=self.device)
+                taus = self.distortion_fn(taus)
+                quantile_values = self.network(state_tensor, taus)
+
+                if self.variance_penalty > 0:
+                    q_mean = quantile_values.mean(dim=1).squeeze(0)
+                    q_var = quantile_values.var(dim=1).squeeze(0)
+                    q_values = q_mean - self.variance_penalty * q_var
+                else:
+                    q_values = quantile_values.mean(dim=1).squeeze(0)
+
+                legal_mask = torch.full((self.num_actions,), float('-inf'), device=self.device)
+                for a in legal_actions:
+                    legal_mask[a] = 0.0
+                q_values = q_values + legal_mask
+                action = q_values.argmax().item()
+            probs[action] = 1.0
+
+        return action, probs
+
     def add_transition(self, state, action, reward, next_state, done, legal_actions_mask):
         self.buffer.add(state, action, reward, next_state, done, legal_actions_mask)
 
     def update(self):
         """IQN quantile Huber loss update. Returns loss value or None."""
-        if len(self.buffer) < self.batch_size:
+        if len(self.buffer) < max(self.batch_size, self.min_buffer_size_to_learn):
             return None
 
         states, actions, rewards, next_states, dones, legal_masks = self.buffer.sample(self.batch_size)
@@ -122,7 +163,7 @@ class IQNAgent:
 
             # Best action from next state (average over quantiles)
             next_q_avg = next_quantiles.mean(dim=1)
-            next_q_avg = next_q_avg + (legal_masks - 1.0) * 1e9
+            next_q_avg = next_q_avg + (legal_masks - 1.0) * 1e38
             best_actions = next_q_avg.argmax(dim=1)
 
             # Gather target quantiles for best action: (batch_size, N)
@@ -147,22 +188,23 @@ class IQNAgent:
         loss.backward()
         self.optimizer.step()
 
-        self.train_steps += 1
-        if self.train_steps % self.target_update_freq == 0:
-            self.target_network.load_state_dict(self.network.state_dict())
-
         return loss.item()
+
+    def soft_update_target(self, tau):
+        """Soft (Polyak) update of target network."""
+        for target_param, param in zip(self.target_network.parameters(),
+                                       self.network.parameters()):
+            target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
     def get_state_dict(self):
         return {
             'iqn_network': self.network.state_dict(),
             'iqn_target_network': self.target_network.state_dict(),
             'iqn_optimizer': self.optimizer.state_dict(),
-            'iqn_train_steps': self.train_steps,
         }
 
     def load_state_dict(self, checkpoint):
         self.network.load_state_dict(checkpoint['iqn_network'])
         self.target_network.load_state_dict(checkpoint['iqn_target_network'])
-        self.optimizer.load_state_dict(checkpoint['iqn_optimizer'])
-        self.train_steps = checkpoint['iqn_train_steps']
+        # Skip optimizer state — incompatible across PyTorch versions.
+        # Network weights are sufficient; optimizer warms up quickly.

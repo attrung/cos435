@@ -1,0 +1,43 @@
+# Limit Hold'em — NFSP with IQN best-response (risk-neutral)
+
+experiment_name: holdem_iqn_neutral
+agent_type: nfsp_iqn
+game_name: "universal_poker(betting=limit,numPlayers=2,numRounds=4,blind=50 100,firstPlayer=2 1 1 1,numSuits=4,numRanks=13,numHoleCards=2,numBoardCards=0 3 1 1,raiseSize=100 100 200 200,maxRaises=3 3 3 3)"
+
+eta: 0.1
+
+# IQN — Adam optimizer
+dqn_lr: 0.0005
+iqn_optimizer: adam
+gamma: 1.0
+dqn_buffer_size: 2000000
+batch_size: 256
+
+epsilon_start: 0.06
+epsilon_end: 0.001
+epsilon_decay_duration: 40000000
+
+learn_every: 128
+min_buffer_size_to_learn: 1000
+target_update_freq: 19200
+target_update_tau: 0.995
+
+# IQN-specific
+iqn_num_quantiles: 8
+iqn_num_quantiles_eval: 32
+iqn_embedding_dim: 64
+iqn_kappa: 1.0
+risk_distortion: none
+
+avg_policy_lr: 0.005
+reservoir_buffer_size: 2000000
+
+hidden_size: 256
+
+num_episodes: 100000000
+eval_freq: 500000
+checkpoint_freq: 1000000
+
+log_dir: results/logs
+checkpoint_dir: results/checkpoints
+skip_exploitability: true

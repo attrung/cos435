@@ -49,7 +49,7 @@ def save_checkpoint(path, agent, episode, exploitability_log):
 
 def load_checkpoint(path, agent):
     """Load agent checkpoint."""
-    checkpoint = torch.load(path, map_location='cpu')
+    checkpoint = torch.load(path, map_location='cpu', weights_only=False)
     agent.load_state_dict(checkpoint)
     return checkpoint['episode'], checkpoint['exploitability_log']
 

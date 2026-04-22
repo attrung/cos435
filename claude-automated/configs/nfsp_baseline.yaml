@@ -1,5 +1,5 @@
 # NFSP Baseline with DQN best-response
-# Heinrich & Silver (2016) hyperparameters for Leduc poker
+# Paper hyperparameters (Heinrich & Silver 2016) + OpenSpiel structural fixes
 
 experiment_name: nfsp_baseline
 agent_type: nfsp
@@ -7,12 +7,21 @@ agent_type: nfsp
 # NFSP parameters
 eta: 0.1  # anticipatory parameter
 
-# DQN best-response parameters
-dqn_lr: 0.1
+# DQN best-response parameters (matching OpenSpiel reference exactly)
+dqn_lr: 0.01
 gamma: 1.0
-dqn_epsilon: 0.06
 dqn_buffer_size: 200000
-target_update_freq: 1000
+
+# Epsilon decay (from OpenSpiel reference)
+epsilon_start: 0.06
+epsilon_end: 0.001
+epsilon_decay_duration: 20000000  # 20M game steps
+
+# Learning schedule (matching OpenSpiel reference exactly)
+learn_every: 64
+min_buffer_size_to_learn: 1000
+target_update_freq: 19200
+target_update_tau: 0.995
 
 # Average policy parameters
 avg_policy_lr: 0.01
@@ -23,8 +32,7 @@ hidden_size: 128
 
 # Training parameters
 batch_size: 128
-lr_decay_min: 0.1  # anneal lr to 10% of initial over training
-num_episodes: 3000000
+num_episodes: 20000000
 eval_freq: 10000
 checkpoint_freq: 100000
 

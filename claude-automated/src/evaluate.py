@@ -87,7 +87,7 @@ def head_to_head(game, agents_a, agents_b, device, num_games=1000):
                 player = state.current_player()
                 info_state = state.information_state_tensor(player)
                 legal_actions = state.legal_actions()
-                action, _ = current_agents[player].step(info_state, legal_actions, is_evaluation=True)
+                action, _, _ = current_agents[player].step(info_state, legal_actions, is_evaluation=True)
                 state.apply_action(action)
 
         returns = state.returns()

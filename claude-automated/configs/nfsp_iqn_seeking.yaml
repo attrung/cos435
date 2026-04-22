@@ -7,14 +7,24 @@ agent_type: nfsp_iqn
 eta: 0.1
 
 # IQN best-response parameters
-dqn_lr: 0.1
+dqn_lr: 0.0005
+iqn_optimizer: adam
 gamma: 1.0
-dqn_epsilon: 0.06
 dqn_buffer_size: 200000
-target_update_freq: 1000
+
+# Epsilon decay
+epsilon_start: 0.06
+epsilon_end: 0.001
+epsilon_decay_duration: 20000000
+
+# Learning schedule
+learn_every: 64
+min_buffer_size_to_learn: 1000
+target_update_freq: 19200
+target_update_tau: 0.995
 
 # IQN-specific parameters
-iqn_num_quantiles: 8
+iqn_num_quantiles: 4
 iqn_num_quantiles_eval: 32
 iqn_embedding_dim: 64
 iqn_kappa: 1.0
@@ -33,8 +43,7 @@ hidden_size: 128
 
 # Training parameters
 batch_size: 128
-lr_decay_min: 0.1  # anneal lr to 10% of initial over training
-num_episodes: 3000000
+num_episodes: 20000000
 eval_freq: 10000
 checkpoint_freq: 100000
 

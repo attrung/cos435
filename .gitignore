@@ -1,0 +1,47 @@
+# ── Build artifacts ────────────────────────────────────────────
+cpp-implementation/build/
+cpp-implementation/third_party/
+cpp-implementation/CMakeCache.txt
+cpp-implementation/CMakeFiles/
+
+# ── Model weights, checkpoints, buffers ────────────────────────
+# Weight directories (both games, all variants) — match dirs AND symlinks
+cpp-implementation/final_weights
+cpp-implementation/final_weights_*
+cpp-implementation/eval_weights_*
+# Checkpoint dir (symlinked to /mnt/data on GCP box)
+cpp-implementation/checkpoints
+
+# ── Training artifacts (regenerable) ───────────────────────────
+cpp-implementation/logs/
+cpp-implementation/results/
+
+# claude-automated Python-side artifacts
+claude-automated/results/checkpoints/
+claude-automated/results/.progress/
+claude-automated/results/**/*.log
+claude-automated/results/**/*.jsonl
+claude-automated/results/**/*.npy
+claude-automated/results/**/*.csv
+
+# ── Stale conversation / scratch dumps ─────────────────────────
+cpp-implementation/*.txt
+
+# ── Python ──────────────────────────────────────────────────────
+__pycache__/
+*.py[co]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ── Editor / OS ────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── Claude Code runtime ────────────────────────────────────────
+.claude/scheduled_tasks.lock
+.claude/*.local.json

@@ -20,7 +20,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "============================================================"
-echo "  NFSP Leduc Poker — 4 experiments (single-process each)"
+echo "  NFSP Leduc Poker — 6 experiments (single-process each)"
 echo "  Started: $(date)"
 echo "============================================================"
 echo ""
@@ -44,10 +44,12 @@ launch() {
     NAMES+=("$name")
 }
 
-launch configs/nfsp_baseline.yaml     nfsp_baseline     "[1/4] BASELINE"
-launch configs/nfsp_iqn_neutral.yaml  nfsp_iqn_neutral  "[2/4] IQN-NEUTRAL"
-launch configs/nfsp_iqn_mean_var.yaml nfsp_iqn_mean_var "[3/4] IQN-MEAN-VAR"
-launch configs/nfsp_iqn_averse.yaml   nfsp_iqn_averse   "[4/4] IQN-AVERSE"
+launch configs/nfsp_baseline.yaml        nfsp_baseline        "[1/6] BASELINE"
+launch configs/nfsp_iqn_neutral.yaml     nfsp_iqn_neutral     "[2/6] IQN-NEUTRAL"
+launch configs/nfsp_iqn_mean_var.yaml    nfsp_iqn_mean_var    "[3/6] IQN-MV-0.1"
+launch configs/nfsp_iqn_mean_var_05.yaml nfsp_iqn_mean_var_05 "[4/6] IQN-MV-0.5"
+launch configs/nfsp_iqn_averse.yaml      nfsp_iqn_averse      "[5/6] IQN-AVERSE"
+launch configs/nfsp_iqn_seeking.yaml     nfsp_iqn_seeking     "[6/6] IQN-SEEKING"
 
 echo ""
 echo "  ${#PIDS[@]} experiments running."

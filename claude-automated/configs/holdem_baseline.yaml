@@ -1,0 +1,43 @@
+# Limit Hold'em — NFSP Baseline with DQN best-response
+# Standard 2-player Limit Texas Hold'em via OpenSpiel universal_poker
+
+experiment_name: holdem_baseline
+agent_type: nfsp
+game_name: "universal_poker(betting=limit,numPlayers=2,numRounds=4,blind=50 100,firstPlayer=2 1 1 1,numSuits=4,numRanks=13,numHoleCards=2,numBoardCards=0 3 1 1,raiseSize=100 100 200 200,maxRaises=3 3 3 3)"
+
+# NFSP parameters
+eta: 0.1
+
+# DQN best-response — SGD like Leduc baseline
+dqn_lr: 0.01
+gamma: 1.0
+dqn_buffer_size: 2000000  # 10x Leduc (larger game)
+batch_size: 256
+
+# Epsilon decay
+epsilon_start: 0.06
+epsilon_end: 0.001
+epsilon_decay_duration: 40000000
+
+# Learning schedule
+learn_every: 128  # 2x Leduc (longer episodes)
+min_buffer_size_to_learn: 1000
+target_update_freq: 19200
+target_update_tau: 0.995
+
+# Average policy
+avg_policy_lr: 0.005
+reservoir_buffer_size: 2000000
+
+# Network — 2 hidden layers [256] for larger game
+hidden_size: 256
+
+# Training
+num_episodes: 100000000  # 100M — will stop early if converging
+eval_freq: 500000
+checkpoint_freq: 1000000
+
+# Paths
+log_dir: results/logs
+checkpoint_dir: results/checkpoints
+skip_exploitability: true

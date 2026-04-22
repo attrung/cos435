@@ -9,11 +9,12 @@ import time
 from tqdm import tqdm
 
 EXPERIMENTS = [
-    ('configs/nfsp_baseline.yaml',     'nfsp_baseline',     'BASELINE'),
-    ('configs/nfsp_iqn_neutral.yaml',  'nfsp_iqn_neutral',  'IQN-NEUTRAL'),
+    ('configs/nfsp_baseline.yaml',        'nfsp_baseline',        'BASELINE'),
+    ('configs/nfsp_iqn_neutral.yaml',     'nfsp_iqn_neutral',     'IQN-NEUTRAL'),
     ('configs/nfsp_iqn_mean_var.yaml',    'nfsp_iqn_mean_var',    'IQN-MV-0.1'),
     ('configs/nfsp_iqn_mean_var_05.yaml', 'nfsp_iqn_mean_var_05', 'IQN-MV-0.5'),
     ('configs/nfsp_iqn_averse.yaml',      'nfsp_iqn_averse',      'IQN-AVERSE'),
+    ('configs/nfsp_iqn_seeking.yaml',     'nfsp_iqn_seeking',     'IQN-SEEKING'),
 ]
 
 os.chdir(os.path.join(os.path.dirname(__file__), '..'))
@@ -120,6 +121,7 @@ def main():
             sys.executable, '-u', 'src/train.py',
             '--config', config,
             '--progress-file', progress_file,
+            '--num-workers', '5',
         ]
         proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
         procs.append(proc)
