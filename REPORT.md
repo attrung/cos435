@@ -75,7 +75,7 @@ For action selection in the hot (worker-thread) loop, the IQN agent periodically
 | IQN κ (Huber) | 1.0 |
 
 ### Hyperparameters for Leduc runs
-Leduc is much smaller and was trained with an older setup: 40 M episodes (vs 20 M for Hold'em), lr = 0.001, and similar otherwise. The results are drawn from previously-completed training runs saved in `logs/iqn_*.log`.
+Leduc is a much smaller game so we use a much smaller network — a **single hidden layer of 128 units** (the standard OpenSpiel NFSP reference architecture). Training uses batch size 128 and 40 M episodes for IQN variants (lr = 0.001), 45 M for the NFSP baseline (lr = 0.01). Everything else (anticipatory η = 0.1, reservoir sampling, target-net hard copy) matches the Hold'em setup. The Leduc state space is small enough that **exact exploitability** is computed periodically via OpenSpiel's tabular best-response — no sampling or LBR needed. The results are drawn from previously-completed training runs saved in `logs/iqn_*.log` and `logs/baseline.log`.
 
 ### Engineering notes
 - Implementation is C++ with LibTorch. Each run uses 3 worker threads generating episodes into a bounded queue, consumed by per-player gradient threads. This keeps the gradient step on a dedicated core.
@@ -112,16 +112,16 @@ These will round out the Hold'em comparison with the same two risk distortions w
 
 ### Leduc Hold'em — completed (prior runs)
 
-All at 40 M episodes, lr 0.001, N = 8 quantiles. **Exploitability here is exact (via OpenSpiel's tabular best-response)**, reported in mbb/g.
+Architecture: **single hidden layer of 128 units** (OpenSpiel-standard for Leduc). NFSP baseline: lr = 0.01, 45 M episodes. All IQN variants: lr = 0.001, 40 M episodes, N = 8 quantiles. **Exploitability here is exact (via OpenSpiel's tabular best-response)**, reported in mbb/g.
 
-| Run | Risk | Final exploitability |
-|---|---|---|
-| `baseline` (NFSP) | — | **0.094** 🏆 |
-| `iqn_neutral` | none | 0.179 |
-| `iqn_mv01` | mean-var, β = 0.1 | 0.180 |
-| `iqn_mv05` | mean-var, β = 0.5 | 0.183 |
-| `iqn_averse` | CVaR, α = 0.25 | 1.205 |
-| `iqn_seeking` | CVaR-seeking, 0.75 | 2.071 |
+| Run | Arch | Risk | Final exploitability |
+|---|---|---|---|
+| `baseline` (NFSP) | [128] | — | **0.094** 🏆 |
+| `iqn_neutral` | [128] | none | 0.179 |
+| `iqn_mv01` | [128] | mean-var, β = 0.1 | 0.180 |
+| `iqn_mv05` | [128] | mean-var, β = 0.5 | 0.183 |
+| `iqn_averse` | [128] | CVaR, α = 0.25 | 1.205 |
+| `iqn_seeking` | [128] | CVaR-seeking, 0.75 | 2.071 |
 
 ### Cross-game finding
 
@@ -148,10 +148,10 @@ Within risk-neutral IQN, shrinking the network from [256, 128, 256, 128] to [128
 
 | Run | Game | Arch | Risk | Eval | Value | ± SE |
 |---|---|---|---|---|---|---|
-| baseline | Leduc | (standard) | — | exact | 0.094 | — |
-| iqn_neutral | Leduc | (standard) | none | exact | 0.179 | — |
-| iqn_mv05 | Leduc | (standard) | MV β=0.5 | exact | 0.183 | — |
-| iqn_averse | Leduc | (standard) | CVaR α=0.25 | exact | 1.205 | — |
+| baseline | Leduc | [128] | — | exact | 0.094 | — |
+| iqn_neutral | Leduc | [128] | none | exact | 0.179 | — |
+| iqn_mv05 | Leduc | [128] | MV β=0.5 | exact | 0.183 | — |
+| iqn_averse | Leduc | [128] | CVaR α=0.25 | exact | 1.205 | — |
 | **holdem_small_long (NFSP)** | **Hold'em** | [256,128,256,128] | — | **LBR 5k×15** | **1440** | **62** |
 | holdem_iqn_long | Hold'em | [256,128,256,128] | none | LBR 5k×15 | 1993 | 68 |
 | holdem_iqn_smaller | Hold'em | [128,64,128,64] | none | LBR 5k×15 | 2409 | 78 |
