@@ -29,8 +29,8 @@ EP_LINE = re.compile(r"\[Ep\s+(\d+)/\s*\d+\]\s+avg_r=\s*([-\d.]+)\s+\|\s+(?:h2h|
 H2H_LINE = re.compile(r">>> H2H WINRATE @ ep\s+(\d+):\s+([-\d.]+)")
 
 def parse_log(path):
-    """Return dict with np arrays: episodes, avg_r, h2h_inline, br_loss, avg_loss, h2h_ep, h2h_val."""
-    eps, ar, h2h_inline, br, av = [], [], [], [], []
+    """Return dict with np arrays: eps, avg_r, inline (h2h or exploit), br_loss, avg_loss, h2h_ep, h2h_val."""
+    eps, ar, inline, br, av = [], [], [], [], []
     h2h_ep, h2h_val = [], []
     with open(path) as f:
         for line in f:
@@ -38,7 +38,7 @@ def parse_log(path):
             if m:
                 eps.append(int(m.group(1)))
                 ar.append(float(m.group(2)))
-                h2h_inline.append(float(m.group(3)))
+                inline.append(float(m.group(3)))
                 br.append(float(m.group(4)))
                 av.append(float(m.group(5)))
                 continue
@@ -49,6 +49,7 @@ def parse_log(path):
     return {
         'eps': np.array(eps),
         'avg_r': np.array(ar),
+        'inline': np.array(inline),   # for Leduc this is exploit; for Hold'em it's h2h
         'br_loss': np.array(br),
         'avg_loss': np.array(av),
         'h2h_ep': np.array(h2h_ep),
@@ -79,35 +80,74 @@ LEDUC_RUNS = [
     ('iqn_seeking', 'IQN CVaR seeking', 'C4', '-'),
 ]
 
+def leduc_full_trajectory(name):
+    """Combine 0-40M data from the log (inline `exploit=`) with 40M-50M data from CSV.
+
+    The logs have inline exploitability for IQN variants from ~ep 250K onwards. The CSV is
+    only the resumed-training segment (ep 40M onwards). Baseline log was truncated on
+    resume so we only have CSV data for it.
+
+    Returns np arrays (episodes, exploitability_mbb) or (None, None) if no data.
+    """
+    eps_log, val_log = np.array([]), np.array([])
+    log = LOGS / f'{name}.log'
+    if log.exists():
+        d = parse_log(log)
+        if len(d['eps']):
+            # Drop sentinel 999 (eval not yet computed)
+            mask = d['inline'] < 100
+            eps_log = d['eps'][mask]
+            val_log = d['inline'][mask]
+    eps_csv, val_csv = np.array([]), np.array([])
+    csv = CSVS / f'{name}_seed42_exploitability.csv'
+    if csv.exists():
+        eps_csv, val_csv = parse_expl_csv(csv)
+    # Concatenate. If both present, prefer the later CSV values when eps overlap.
+    if len(eps_log) == 0 and len(eps_csv) == 0:
+        return None, None
+    if len(eps_csv) == 0:
+        return eps_log, val_log
+    if len(eps_log) == 0:
+        return eps_csv, val_csv
+    # Keep log data < first CSV episode, then append CSV
+    cut = eps_csv.min()
+    mask = eps_log < cut
+    return np.concatenate([eps_log[mask], eps_csv]), np.concatenate([val_log[mask], val_csv])
+
+
 def plot_leduc():
-    # Exploitability
-    plt.figure(figsize=(8, 5))
+    # Exploitability (full 0 → 50M trajectory)
+    plt.figure(figsize=(9, 5))
     for name, label, color, ls in LEDUC_RUNS:
-        csv = CSVS / f'{name}_seed42_exploitability.csv'
-        if not csv.exists():
-            print(f'missing {csv}'); continue
-        ep, val = parse_expl_csv(csv)
-        plt.semilogy(ep/1e6, val, color=color, ls=ls, label=label, lw=1.3)
+        ep, val = leduc_full_trajectory(name)
+        if ep is None: print(f'no data for {name}'); continue
+        # Light downsample to avoid overplotting
+        if len(ep) > 1000:
+            step = max(1, len(ep) // 1000)
+            ep, val = ep[::step], val[::step]
+        plt.semilogy(ep/1e6, val, color=color, ls=ls, label=label, lw=1.2, alpha=0.85)
     plt.xlabel('Episodes (millions)')
     plt.ylabel('Exploitability (mbb/g, log scale)')
-    plt.title("Leduc Hold'em — Exact Exploitability")
+    plt.title("Leduc Hold'em — Exact Exploitability (full trajectory)")
     plt.legend(fontsize=8, loc='best')
-    plt.grid(alpha=0.3)
+    plt.grid(alpha=0.3, which='both')
     plt.tight_layout()
     plt.savefig(FIGS / 'leduc' / 'exploitability.png', dpi=140)
     plt.close()
     print(f'wrote {FIGS}/leduc/exploitability.png')
 
-    # Linear-scale version for clarity on converged values
-    plt.figure(figsize=(8, 5))
+    # Linear-scale (converged-zoom)
+    plt.figure(figsize=(9, 5))
     for name, label, color, ls in LEDUC_RUNS:
-        csv = CSVS / f'{name}_seed42_exploitability.csv'
-        if not csv.exists(): continue
-        ep, val = parse_expl_csv(csv)
-        plt.plot(ep/1e6, val, color=color, ls=ls, label=label, lw=1.3)
+        ep, val = leduc_full_trajectory(name)
+        if ep is None: continue
+        if len(ep) > 1000:
+            step = max(1, len(ep) // 1000)
+            ep, val = ep[::step], val[::step]
+        plt.plot(ep/1e6, val, color=color, ls=ls, label=label, lw=1.2, alpha=0.85)
     plt.xlabel('Episodes (millions)')
     plt.ylabel('Exploitability (mbb/g)')
-    plt.title("Leduc Hold'em — Exact Exploitability (linear)")
+    plt.title("Leduc Hold'em — Exact Exploitability (linear, full trajectory)")
     plt.legend(fontsize=8, loc='best')
     plt.grid(alpha=0.3)
     plt.ylim(0, 2.5)
