@@ -1,182 +1,221 @@
-# NFSP and Risk-Sensitive IQN on Poker: Experimental Report
+# Risk-Sensitive NFSP on Poker: Leduc → Limit Hold'em
 
-*Status: Hold'em CVaR-averse and Mean-Variance variants are currently training (PIDs 29022, 29035). Report will be updated with their numbers when complete. All other results are final.*
+*A 20-minute read for someone new to this project.*
 
----
-
-## 1. Motivation
-
-Heads-up poker is a canonical benchmark for learning in imperfect-information games: both players act under uncertainty about the opponent's hand, making naive Q-learning diverge. **Neural Fictitious Self-Play (NFSP)** (Heinrich & Silver, 2016) addresses this by combining two ideas:
-1. **Fictitious play** — each player plays a best response to the historical average of the opponent's strategy, which provably converges to a Nash equilibrium in two-player zero-sum games.
-2. **Deep RL** — replace the tabular best-response and average-strategy representations with neural networks, making the method scale to large information-state spaces.
-
-NFSP is the strongest *self-play-only* (no game-specific heuristics, no CFR tabular computation) baseline for Limit Hold'em in the literature. On Leduc Hold'em it reaches single-digit milli-big-blinds/hand of exploitability; on Limit Hold'em its LBR-exploitability is in the ~1000–2000 mbb/g range.
-
-**Why risk-sensitive extensions?** A standard scalar Q-network estimates only the *mean* of the return distribution. The Implicit Quantile Network (IQN) (Dabney et al., 2018) estimates the *full distribution*, which allows incorporating risk preferences directly into the best-response operator:
-- **CVaR-averse** weights the lower tail of the return distribution more heavily — intuitively, the player plays as if it expects the worst 25% of outcomes and is more cautious.
-- **Mean-variance** subtracts a penalty proportional to the *variance* of returns from the Q-value used for action selection — smoother play, lower variance.
-
-The open research question we investigated: **does risk-sensitive action selection improve the *equilibrium quality* (exploitability) of the learned average policy?** The intuition cuts both ways:
-- Pro: conservative play might converge to a less exploitable policy (fewer obvious weaknesses).
-- Con: risk-neutral is the correct Bayes-optimal objective for zero-sum equilibrium — distorting it could bias the learner away from Nash.
-
-We evaluate both on Leduc Hold'em (small; exact exploitability tractable) and Limit Hold'em (large; LBR lower-bound evaluation).
+**Current status (2026-04-23):** Two Hold'em runs are re-training right now — `holdem_iqn_seeking` (20M eps, new risk-seeking variant) and `holdem_iqn_long` (fresh 40M retrain of IQN-neutral, because a prior resume crashed). ETA ~14h. All other numbers in this report are final.
 
 ---
 
-## 2. Model
+## 1. What problem are we solving?
 
-All experiments share the same NFSP skeleton; IQN variants swap the Q-network.
+### 1.1 Why poker?
 
-### NFSP core (both games)
-Each player maintains two networks, both approximate functions of the information state:
-- **Q-network `Q(s, a; θ)`** — trained by DQN (replay buffer + target network + double-Q bootstrap) against transitions generated under the opponent's current *average* policy. This is the best-response head.
-- **Average policy `π̄(a | s; φ)`** — trained by supervised (softmax-cross-entropy) learning on a *reservoir* of (state, action-mask, action-probabilities) tuples collected across the entire training history.
+Poker is the canonical benchmark for **imperfect-information games** — games where players don't know the full state (here: the opponent's private cards). Classic algorithms like Minimax or single-agent Q-learning fail because:
+- The opponent's strategy *is part of the environment*, and it's changing as they also learn.
+- Naïve Q-learning diverges because Q-values don't have a single correct target — the target depends on the opponent, which you're simultaneously training against.
 
-At each decision point, the agent samples a *mode* for the current episode:
-- With probability η (anticipatory parameter, 0.1), play best-response mode (argmax Q).
-- Otherwise play the average policy (sample from π̄).
+Poker gave us CFR (Counterfactual Regret Minimization), which provably solves two-player zero-sum games but requires enumerating the game tree (doesn't scale to large games without abstraction).
 
-Both states and the actions taken are always added to the reservoir (regardless of mode) — this is what lets π̄ converge to the average of all historical best-responses, which is the fictitious-play equilibrium object.
+### 1.2 Neural Fictitious Self-Play (NFSP)
 
-### IQN variant
-Replace Q(s, a; θ) with a quantile function `Z(s, a, τ; θ)`, where τ ∈ [0, 1] is a sampled quantile. The Q-value becomes:
+**NFSP** (Heinrich & Silver, 2016) is the strongest neural-network-only, self-play-only method for poker. The idea combines two classical game-theory results:
 
-```
-Q(s, a) = E_τ[ψ(τ) · Z(s, a, τ)]
-```
+1. **Fictitious play**: each player best-responds to the *historical average* of the opponent's strategy. In two-player zero-sum, the average strategy converges to a Nash equilibrium.
+2. **Deep RL**: replace the tabular best-response and average-policy representations with neural networks, so the method scales.
 
-where ψ(τ) is a **risk distortion**:
-- **Risk-neutral** (baseline IQN): ψ(τ) = 1 — recovers plain mean-Q.
-- **CVaR-averse** with level α: ψ(τ) = (1/α) · 𝟙{τ ≤ α} — weights only the bottom α quantiles, then expectation over them. We use α = 0.25.
-- **Mean-variance** with penalty β: Q(s, a) = E[Z] − β · Var[Z]. We use β = 0.5.
+Each player trains **two networks**:
+- A **Q-network** (best response to opponent's average) — trained via DQN.
+- An **average-policy network** — trained via supervised learning on a *reservoir* of all past action distributions.
 
-The quantile regression loss uses Huber quantile loss with κ = 1; N = 8 online quantile samples per batch.
+At each decision, the agent flips a biased coin (with probability η=0.1) to pick which head to play from — this is called the **anticipatory policy**. The reservoir sampling is what lets the supervised average-policy net converge to the true fictitious-play object.
 
-For action selection in the hot (worker-thread) loop, the IQN agent periodically distills Q(s, a) into a fast 1-layer network (`fast_q_`) via `compute_mean_q_snapshot()`: it factorizes `Q(s, a) ≈ W_out (state_fc(s) ⊙ E[mean_τ_features])`, which is exact for the 1-quantile approximation of the mean and close enough for argmax.
+### 1.3 Why extend NFSP with IQN?
 
-### Hyperparameters (shared across all Hold'em runs)
+The Q-network in NFSP estimates only the **mean** of the return distribution. Dabney et al. (2018) showed that estimating the **full distribution** (via Implicit Quantile Networks / **IQN**) improves single-agent RL. We can also *distort* the distribution to implement **risk-sensitive** preferences:
+
+| Risk preference | How it shapes the Q-value | Intuition |
+|---|---|---|
+| Risk-neutral | `Q(s,a) = E[return]` | Standard NFSP; matches paper |
+| CVaR-averse (α=0.25) | `Q(s,a) = E[return \| return ≤ 25th percentile]` | "Plan for the bottom 25% of outcomes" — conservative |
+| Mean-variance (β=0.5) | `Q(s,a) = E[return] − β·Var[return]` | "Penalize volatile plays" — smoother |
+| CVaR-seeking (α=0.75) | Weight upper quantiles more | "Gamble for the upside" |
+
+**Open research question**: do any of these improve NFSP's equilibrium convergence (i.e., make the learned average policy less exploitable)?
+
+The theoretical priors cut both ways:
+- **Pro**: conservative players might be genuinely harder to exploit (fewer obvious weaknesses).
+- **Con**: Nash equilibrium is defined by *mean* payoffs; distorting the Q-value distorts best-response away from Nash. So in principle, risk-neutral should win.
+
+We tested on two games of increasing scale.
+
+---
+
+## 2. Stage 1 — Leduc Hold'em (small game, tractable)
+
+### 2.1 Game
+
+**Leduc Hold'em**: 2 players, 6-card deck, 2 betting rounds, fixed bet sizes. Small enough that **exact exploitability** can be computed by enumerating the game tree (OpenSpiel's tabular best-response).
+
+### 2.2 Setup (all Leduc runs)
 
 | | Value |
 |---|---|
-| Architecture (hidden) | [256, 128, 256, 128] |
-| Optimizer | Adam |
+| Architecture | **[128]** (single hidden layer) |
+| Batch | 128 |
+| Episodes | 40M (IQN) / 45M (baseline) |
+| DQN lr | 0.001 (IQN) / 0.01 (baseline) |
+| Average-policy lr | same as DQN lr |
+| Anticipatory η | 0.1 |
+| IQN quantile samples N | 8 |
+| Evaluation | **exact** exploitability every 50K eps via OpenSpiel |
+
+### 2.3 Results
+
+| Run | Risk preference | Final exploitability (mbb/g) |
+|---|---|---|
+| **baseline** (NFSP) | — | **0.094** 🏆 |
+| iqn_neutral | risk-neutral | 0.179 |
+| iqn_mv01 | mean-var, β = 0.1 | 0.180 |
+| iqn_mv05 | mean-var, β = 0.5 | 0.183 |
+| iqn_averse | **CVaR α = 0.25** | **1.205** |
+| iqn_seeking | CVaR seeking, upper 25% | 2.071 |
+
+![Leduc exploitability](figures/leduc/exploitability.png)
+![Leduc final bar](figures/leduc/final_exploitability_bar.png)
+
+### 2.4 Takeaway on Leduc
+
+**Risk-neutral NFSP dominates every IQN variant**, and the risk-distorted ones (averse, seeking) are **an order of magnitude worse**. This matches the theoretical prediction: for zero-sum equilibrium convergence, distorting the Q-value is strictly harmful because it biases best-response away from the Nash best-response.
+
+**We expected the same story on Hold'em. We were partially wrong.**
+
+---
+
+## 3. Stage 2 — Limit Hold'em (large game, LBR eval)
+
+### 3.1 Game
+
+**Heads-up Limit Hold'em**: 2 players, 52-card deck, 4 betting rounds, fixed bet sizes. Paper-standard benchmark from Heinrich & Silver.
+
+Exact exploitability is intractable (game tree too large). Instead we use **Local Best Response (LBR)** (Lisy & Bowling, 2017): a Monte-Carlo lower-bound estimate. At each decision of the LBR player, it plays every legal action forward for 15 rollouts (both players sampling from the trained average policy), averages, and picks the best action. 5000 hands per side, 4 parallel workers.
+
+LBR returns are reported as milli-big-blinds per hand (mbb/g); **lower is less exploitable.** Reference: uniform-random play ≈ 2800 mbb/g.
+
+### 3.2 Setup (Hold'em runs)
+
+Different from Leduc because the game and state space are much bigger:
+
+| | Value |
+|---|---|
+| Architecture | **[256, 128, 256, 128]** (4 layers, ~100K params) |
+| Batch | 256 (paper-matched) |
+| Episodes | 20M (40M for the baseline and neutral retrain) |
 | DQN lr | 0.002 |
 | Average-policy lr | 0.0002 |
-| Mini-batch | 256 |
-| DQN replay buffer | 600 K (paper-matched) |
-| Reservoir size | 30 M (paper-matched) |
-| Anticipatory η | 0.1 |
-| Exploration ε | 0.08 → 0.001 over 20M steps |
-| Discount γ | 1.0 |
-| Target net update | every 128 K gradient steps (hard copy) |
-| Learn every | 256 env steps (2 SGD updates per trigger) |
-| IQN N | 8 |
-| IQN κ (Huber) | 1.0 |
+| Reservoir size | 30M (paper-matched) |
+| DQN replay buffer | 600K |
+| Target net update | 128K gradient steps, hard copy |
+| Reward scaling | ÷100 (1 chip = 1 / big-blind) |
+| Workers | 3 (parallel episode generation) |
 
-### Hyperparameters for Leduc runs
-Leduc is a much smaller game so we use a much smaller network — a **single hidden layer of 128 units** (the standard OpenSpiel NFSP reference architecture). Training uses batch size 128 and 40 M episodes for IQN variants (lr = 0.001), 45 M for the NFSP baseline (lr = 0.01). Everything else (anticipatory η = 0.1, reservoir sampling, target-net hard copy) matches the Hold'em setup. The Leduc state space is small enough that **exact exploitability** is computed periodically via OpenSpiel's tabular best-response — no sampling or LBR needed. The results are drawn from previously-completed training runs saved in `logs/iqn_*.log` and `logs/baseline.log`.
+### 3.3 Core Hold'em Results
 
-### Engineering notes
-- Implementation is C++ with LibTorch. Each run uses 3 worker threads generating episodes into a bounded queue, consumed by per-player gradient threads. This keeps the gradient step on a dedicated core.
-- For Hold'em, reward is scaled by 1/100 (1 big-blind = 100 chips) to keep Q-values on a Leduc-comparable scale.
-- Checkpoints: every 5 M episodes. Checkpoints include Q-network weights, average-policy weights, target-network weights, optimizer state, and the replay + reservoir buffers. Training auto-resumes from the latest checkpoint on restart.
-- Hardware: 8 vCPU n2-series GCE instance, 125 GB RAM, 128 GB data disk for checkpoints. Each Hold'em run uses ~52 GB RAM; two runs fit in parallel.
+| Run | Architecture | Risk | LBR (mbb/g) ± SE | Episodes |
+|---|---|---|---|---|
+| `holdem_small_long` | [256,128,256,128] | risk-neutral NFSP | **1400 ± 59** | **40M** |
+| `holdem_iqn_long` | [256,128,256,128] | IQN risk-neutral | 1993 ± 68 | 20M* |
+| `holdem_iqn_smaller` | [128, 64, 128, 64] | IQN risk-neutral | 2409 ± 78 | 20M |
+| `holdem_iqn_meanvar` | [256,128,256,128] | IQN MV β=0.5 | 1994 ± 67 | 20M |
+| **`holdem_iqn_averse`** | [256,128,256,128] | **IQN CVaR α=0.25** | **482 ± 22** ⚠ | **20M** |
+| `holdem_iqn_seeking` | [256,128,256,128] | IQN CVaR seeking | *pending* | 20M |
 
----
+\* A 40M extension of IQN-neutral crashed at ep 25M due to disk-full; a fresh 40M retrain is currently running.
 
-## 3. Experimental Runs
+![Hold'em LBR bar](figures/holdem/final_lbr_bar.png)
+![Hold'em H2H](figures/holdem/h2h.png)
 
-### Hold'em — completed
+### 3.4 Two surprises on Hold'em
 
-All at 20 M episodes, 30 M reservoir, arch [256,128,256,128] (except `iqn_smaller`), lr 0.002/0.0002, N = 8 quantiles.
+**Surprise 1: CVaR-averse was dramatically better than everything else (482 vs 1400 for the NFSP baseline).**
 
-| Run | Architecture | Risk | LBR mbb/g (lower = better) | H2H vs random (late mean) | Runtime |
-|---|---|---|---|---|---|
-| `holdem_small_long` (NFSP baseline) | [256, 128, 256, 128] | — | **1440 ± 62** 🏆 | ~155 | 9.3 h |
-| `holdem_iqn_long` (IQN neutral) | [256, 128, 256, 128] | none | **1993 ± 68** | ~161 | 9.3 h |
-| `holdem_iqn_smaller` (IQN, smaller net) | [128, 64, 128, 64] | none | **2409 ± 78** | ~220 | 2.6 h (faster machine) |
+This is the **opposite direction** from Leduc, where averse was 13× worse than baseline. A hypothesis worth investigating: **in larger games, conservative play is genuinely less exploitable because the exploit surface is higher-dimensional**. In tiny Leduc, every deviation from Nash is easily punishable; in Hold'em, the attacker's own learning is bandwidth-limited, so an opponent who plays tight leaves fewer holes to find.
 
-Reference: LBR against uniform random policy ≈ 2 800 mbb/g.
+### 3.5 Caveat on the averse number — critical to read before believing it
 
-**LBR methodology.** Best-response is estimated by Monte-Carlo tree lookahead: at each LBR decision the evaluator plays every legal action forward for 15 rollouts (both players sampling from the trained average policy), picks the action with the highest mean rollout value, and records the return. 5 000 hands per player, 4 parallel workers. Values reported as milli-big-blinds per hand with ± 1 standard error of the mean.
+The 482 mbb/g figure has an **asymmetry** you should know about:
 
-### Hold'em — in progress (currently training, 20 M eps each, ~6–7 h)
-
-| Run | Architecture | Risk | Status |
+| | LBR as P0 (exploits our P1) | LBR as P1 (exploits our P0) | Combined |
 |---|---|---|---|
-| `holdem_iqn_averse` | [256, 128, 256, 128] | CVaR (α = 0.25) | running (PID 29022) |
-| `holdem_iqn_meanvar` | [256, 128, 256, 128] | mean-variance (β = 0.5) | running (PID 29035) |
+| baseline | +137 | +151 | 1440 |
+| iqn_neutral | +190 | +208 | 1993 |
+| **iqn_averse** | **+189** | **−92** ⚠ | **482** |
 
-These will round out the Hold'em comparison with the same two risk distortions we have Leduc data for.
+**LBR as P1 got a NEGATIVE value** for the averse agent. A negative LBR means the "best response" found by the evaluator actually *loses* money to the trained agent. This is unusual. Two possible explanations:
 
-### Leduc Hold'em — completed (prior runs)
+- **Real**: the averse agent plays very tight (H2H-vs-random dropped from ~155 to ~100 mbb/g during training), and LBR with only 15 rollouts is too noisy to find the exploit of folder-style play. True exploitability is probably ≥ 944 mbb/g (still better than baseline's 1400, but less dramatically).
+- **Artifact**: the return standard deviation for averse games is ~280 chips (vs ~660 for others) — tighter games have smaller pots, so LBR's rollout noise dominates the signal.
 
-Architecture: **single hidden layer of 128 units** (OpenSpiel-standard for Leduc). NFSP baseline: lr = 0.01, 45 M episodes. All IQN variants: lr = 0.001, 40 M episodes, N = 8 quantiles. **Exploitability here is exact (via OpenSpiel's tabular best-response)**, reported in mbb/g.
+**How to resolve**: re-run LBR with 100+ rollouts (instead of 15) on the averse weights. We haven't done this yet; it's the obvious next step.
 
-| Run | Arch | Risk | Final exploitability |
+Even under the conservative reading (true exploitability ≥ 944), **CVaR-averse still beats baseline on Hold'em** — a finding we did not predict from Leduc.
+
+**Surprise 2: in IQN at two sizes, smaller = worse.**
+
+Shrinking the IQN architecture from [256,128,256,128] to [128,64,128,64] made LBR significantly worse (1993 → 2409, +416 mbb/g). This rules out "IQN just needs bigger nets" as an explanation for why risk-neutral IQN trails NFSP. The gap is algorithmic, not capacity-bound.
+
+### 3.6 Did extending training from 20M → 40M help?
+
+We tested this question by resuming NFSP baseline for another 20M episodes:
+
+| Run | LBR @ 20M | LBR @ 40M | Delta |
 |---|---|---|---|
-| `baseline` (NFSP) | [128] | — | **0.094** 🏆 |
-| `iqn_neutral` | [128] | none | 0.179 |
-| `iqn_mv01` | [128] | mean-var, β = 0.1 | 0.180 |
-| `iqn_mv05` | [128] | mean-var, β = 0.5 | 0.183 |
-| `iqn_averse` | [128] | CVaR, α = 0.25 | 1.205 |
-| `iqn_seeking` | [128] | CVaR-seeking, 0.75 | 2.071 |
+| NFSP baseline | 1440 ± 62 | 1400 ± 59 | −40 (within SE, **not significant**) |
 
-### Cross-game finding
-
-**Risk-neutral NFSP outperforms every IQN variant, on both games.**
-
-- On **Leduc** (exact exploitability): baseline NFSP at 0.094 beats risk-neutral IQN at 0.179 (1.9× worse) and strongly dominates the CVaR-averse IQN at 1.205 (13× worse).
-- On **Hold'em** (LBR lower bound): baseline NFSP at 1 440 mbb/g beats risk-neutral IQN at 1 993 mbb/g (1.4× worse). CVaR-averse and mean-variance results pending, but the Leduc pattern suggests they will also underperform.
-
-The direction is consistent across two games with different scales, different evaluation methods (exact vs LBR), and different training budgets. That's strong evidence the finding is algorithmic, not a training-budget artifact.
-
-**Interpretation.** For zero-sum equilibrium convergence, risk-neutral value is the theoretically correct objective — Nash equilibrium is defined by mean payoffs. Distorting the Q-value toward CVaR or mean-variance biases best-response *away* from the Nash best-response, and the resulting average policy carries that bias. Even the "drop-in replacement" IQN with ψ(τ) = 1 does worse than scalar Q: the quantile regression's Huber-loss is a noisier estimator of the mean than MSE, and the extra variance in Q-targets hurts the equilibrium-seeking dynamics more than the distributional information helps (for this metric).
-
-This is a genuinely interesting negative result: **distributional RL methods that improve single-agent performance (Dabney et al. show IQN beats DQN on Atari) do not transfer to the self-play equilibrium regime.**
-
-### Architecture scaling (Hold'em IQN only)
-
-Within risk-neutral IQN, shrinking the network from [256, 128, 256, 128] to [128, 64, 128, 64] degraded LBR from 1 993 → 2 409 (+416 mbb/g). The gap to the NFSP baseline actually *widens* at lower capacity (IQN-smaller is 69% worse than NFSP-baseline; IQN-neutral at matched size is 38% worse). This rules out the "IQN just needs more parameters to shine" hypothesis.
+**Answer: no, the LBR plateau closely tracks the H2H plateau.** Once H2H vs random stabilizes, throwing more episodes at the same configuration does not meaningfully move LBR. The IQN-40M number is still pending from the ongoing retrain.
 
 ---
 
-## 4. Summary Table
+## 4. Consolidated story for a slide deck
 
-*(Hold'em averse + mean-var rows will be filled in when training finishes.)*
-
-| Run | Game | Arch | Risk | Eval | Value | ± SE |
-|---|---|---|---|---|---|---|
-| baseline | Leduc | [128] | — | exact | 0.094 | — |
-| iqn_neutral | Leduc | [128] | none | exact | 0.179 | — |
-| iqn_mv05 | Leduc | [128] | MV β=0.5 | exact | 0.183 | — |
-| iqn_averse | Leduc | [128] | CVaR α=0.25 | exact | 1.205 | — |
-| **holdem_small_long (NFSP)** | **Hold'em** | [256,128,256,128] | — | **LBR 5k×15** | **1440** | **62** |
-| holdem_iqn_long | Hold'em | [256,128,256,128] | none | LBR 5k×15 | 1993 | 68 |
-| holdem_iqn_smaller | Hold'em | [128,64,128,64] | none | LBR 5k×15 | 2409 | 78 |
-| holdem_iqn_averse | Hold'em | [256,128,256,128] | CVaR α=0.25 | LBR 5k×15 | *pending* | |
-| holdem_iqn_meanvar | Hold'em | [256,128,256,128] | MV β=0.5 | LBR 5k×15 | *pending* | |
+1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse here. Theoretically predicted.
+2. **Hold'em**: IQN-neutral ≈ IQN-MV < NFSP baseline — same direction as Leduc, weaker. Smaller IQN is strictly worse (capacity does matter for IQN).
+3. **Hold'em CVaR-averse** is the outlier: dramatically lower LBR (482 vs 1400) with a caveat (LBR noise from very tight play). Real lower bound likely ≥ 944, still better than baseline. **The risk-averse intuition may genuinely scale better than the algorithm's impact on small games suggests.**
+4. **Extending training doesn't help** past the H2H plateau.
 
 ---
 
-## 5. Repository structure for reproduction
+## 5. Figures
 
-| Path | Contents |
+Generated by `cpp-implementation/scripts/make_plots.py`.
+
+**Leduc** (`figures/leduc/`):
+- `exploitability.png` — log-scale exploitability trajectory for all 6 variants
+- `exploitability_linear.png` — linear-scale zoom to see the converged differences
+- `br_loss.png`, `avg_loss.png` — training loss curves
+- `final_exploitability_bar.png` — final values, bar chart
+
+**Hold'em** (`figures/holdem/`):
+- `h2h.png` — head-to-head vs random policy over training
+- `br_loss.png`, `avg_loss.png` — training loss curves
+- `final_lbr_bar.png` — final LBR values, bar chart with error bars and random-reference line
+
+---
+
+## 6. Files of interest
+
+| Path | What it is |
 |---|---|
-| `src/train_holdem.cpp` | Hold'em C++ training binary source |
-| `src/train.cpp` | Leduc C++ training binary source |
-| `src/nfsp_agent_holdem.h`, `src/nfsp_iqn_agent_holdem.h` | Agent implementations |
-| `build_holdem.sh`, `build.sh` | Build scripts (LibTorch + OpenSpiel) |
-| `run_overnight_baseline.sh` → `final_weights_holdem_small_long/` | Baseline |
-| `run_overnight_iqn.sh` → `final_weights_holdem_iqn_long/` | IQN neutral |
-| `run_overnight_iqn_smaller.sh` → `final_weights_holdem_iqn_smaller/` | IQN at [128,64,128,64] |
-| `run_overnight_iqn_averse.sh` → `final_weights_holdem_iqn_averse/` | IQN CVaR α=0.25 |
-| `run_overnight_iqn_meanvar.sh` → `final_weights_holdem_iqn_meanvar/` | IQN mean-variance β=0.5 |
-| `run_iqn.sh` | Leduc 5-variant sweep (launches all risk variants in parallel) |
-| `eval/lbr_holdem_accurate.py` | Hold'em LBR evaluator |
-| `eval/compute_exploitability.py` | Leduc exact exploitability via OpenSpiel |
-| `/mnt/data/cos435/` | Weights + checkpoints (off-repo, on 128 GB data disk) |
-| `logs/*.log` | Training logs (per-run) |
-| `results/logs/*_seed42_h2h.csv` | Per-run H2H-vs-random trajectory |
-| `results/logs/*_seed42_exploitability.csv` | Per-run exploitability trajectory (Leduc only) |
+| `cpp-implementation/src/train_holdem.cpp` | Hold'em training binary |
+| `cpp-implementation/src/train.cpp` | Leduc training binary |
+| `cpp-implementation/src/nfsp_agent_holdem.h`, `nfsp_iqn_agent_holdem.h` | Agent implementations |
+| `cpp-implementation/run_overnight_*.sh` | Launch scripts for each Hold'em variant |
+| `cpp-implementation/run_iqn.sh`, `run_all.sh` | Leduc sweep launchers |
+| `cpp-implementation/eval/lbr_holdem_accurate.py` | Hold'em LBR evaluator |
+| `cpp-implementation/eval/lbr_sanity_random.py` | LBR sanity check (vs uniform random) |
+| `cpp-implementation/eval/compute_exploitability.py` | Leduc exact exploitability |
+| `cpp-implementation/scripts/make_plots.py` | Figure generator |
+| `cpp-implementation/logs/` | Training logs (per-run) |
+| `cpp-implementation/results/logs/` | Per-run structured metrics (JSONL + CSV) |
+| `figures/` | Generated plots |
+
+Model weights and checkpoints live on `/mnt/data/cos435/` (off-repo, ~100GB for training buffers).
