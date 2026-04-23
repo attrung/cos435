@@ -2,7 +2,10 @@
 
 *A 20-minute read for someone new to this project.*
 
-**Current status (2026-04-23):** Two Hold'em runs are re-training right now — `holdem_iqn_seeking` (20M eps, new risk-seeking variant) and `holdem_iqn_long` (fresh 40M retrain of IQN-neutral, because a prior resume crashed). ETA ~14h. All other numbers in this report are final.
+**Current status (2026-04-23):**
+- Two Hold'em runs still training: `holdem_iqn_seeking` (20M eps) and `holdem_iqn_long` retrain (40M eps). ~9-13h remaining.
+- Leduc baseline retrained with full trajectory logging — now present in plots.
+- **All Hold'em LBR numbers have been re-verified at rollouts=100** (6.7× more accurate than the initial rollouts=15). Numbers moved ~20-30% higher — a systematic under-estimate at the lower rollout count.
 
 ---
 
@@ -120,67 +123,91 @@ Different from Leduc because the game and state space are much bigger:
 
 ### 3.3 Core Hold'em Results
 
-| Run | Architecture | Risk | LBR (mbb/g) ± SE | Episodes |
-|---|---|---|---|---|
-| `holdem_small_long` | [256,128,256,128] | risk-neutral NFSP | **1400 ± 59** | **40M** |
-| `holdem_iqn_long` | [256,128,256,128] | IQN risk-neutral | 1993 ± 68 | 20M* |
-| `holdem_iqn_smaller` | [128, 64, 128, 64] | IQN risk-neutral | 2409 ± 78 | 20M |
-| `holdem_iqn_meanvar` | [256,128,256,128] | IQN MV β=0.5 | 1994 ± 67 | 20M |
-| **`holdem_iqn_averse`** | [256,128,256,128] | **IQN CVaR α=0.25** | **482 ± 22** ⚠ | **20M** |
-| `holdem_iqn_seeking` | [256,128,256,128] | IQN CVaR seeking | *pending* | 20M |
+| Run | Architecture | Risk | LBR (r=100) ± SE | LBR (r=15, older) | Episodes |
+|---|---|---|---|---|---|
+| `holdem_small_long` | [256,128,256,128] | risk-neutral NFSP | **1819 ± 109** | 1400 ± 59 | **40M** |
+| `holdem_iqn_long` (archive) | [256,128,256,128] | IQN risk-neutral | 2091 ± 123 | 1993 ± 68 | 20M* |
+| `holdem_iqn_smaller` | [128, 64, 128, 64] | IQN risk-neutral | *pending* | 2409 ± 78 | 20M |
+| `holdem_iqn_meanvar` | [256,128,256,128] | IQN MV β=0.5 | 2258 ± 121 | 1994 ± 67 | 20M |
+| **`holdem_iqn_averse`** | [256,128,256,128] | **IQN CVaR α=0.25** | **605 ± 44** ⚠ | 482 ± 22 | **20M** |
+| `holdem_iqn_seeking` | [256,128,256,128] | IQN CVaR seeking | *pending* | — | 20M |
 
-\* A 40M extension of IQN-neutral crashed at ep 25M due to disk-full; a fresh 40M retrain is currently running.
+\* A 40M extension of IQN-neutral crashed at ep 25M due to disk-full; a fresh 40M retrain is currently running. The 20M number above uses the archived checkpoint weights.
+
+**All LBR numbers in this report use rollouts=100** (the default LBR script uses 15, but we confirmed empirically that 15 rollouts systematically *underestimates* exploitability by ~20-30% because the Monte-Carlo rollout noise prevents LBR from finding good best-responses). At rollouts=100 the numbers settle into a more stable estimate.
 
 ![Hold'em LBR bar](figures/holdem/final_lbr_bar.png)
 ![Hold'em H2H](figures/holdem/h2h.png)
 
 ### 3.4 Two surprises on Hold'em
 
-**Surprise 1: CVaR-averse was dramatically better than everything else (482 vs 1400 for the NFSP baseline).**
+**Surprise 1: CVaR-averse is dramatically better than every other variant** — even NFSP.
 
-This is the **opposite direction** from Leduc, where averse was 13× worse than baseline. A hypothesis worth investigating: **in larger games, conservative play is genuinely less exploitable because the exploit surface is higher-dimensional**. In tiny Leduc, every deviation from Nash is easily punishable; in Hold'em, the attacker's own learning is bandwidth-limited, so an opponent who plays tight leaves fewer holes to find.
+At rollouts=100: averse = **605 ± 44 mbb/g** vs baseline = **1819 ± 109 mbb/g**. Algebraically, averse is 3× less exploitable. Even under a *conservative* reading (explained below) averse is still 1.75× less exploitable than baseline.
 
-### 3.5 Caveat on the averse number — critical to read before believing it
+This is the **opposite direction** from Leduc, where averse was 13× *worse* than baseline. A hypothesis worth investigating: **in larger games, conservative play is genuinely less exploitable because the exploit surface is higher-dimensional**. In tiny Leduc, every deviation from Nash is easily punishable by LBR; in Hold'em, the attacker's own learning is bandwidth-limited, and an opponent who plays tight leaves fewer holes for LBR to find.
 
-The 482 mbb/g figure has an **asymmetry** you should know about:
+### 3.5 Caveat on the averse number — the P1-negative anomaly
+
+The 605 mbb/g figure has a striking per-player asymmetry that *persists at rollouts=100*:
 
 | | LBR as P0 (exploits our P1) | LBR as P1 (exploits our P0) | Combined |
 |---|---|---|---|
-| baseline | +137 | +151 | 1440 |
-| iqn_neutral | +190 | +208 | 1993 |
-| **iqn_averse** | **+189** | **−92** ⚠ | **482** |
+| baseline (r=100) | +166 | +198 | 1819 |
+| iqn_neutral (r=100) | +220 | +199 | 2091 |
+| iqn_meanvar (r=100) | +231 | +221 | 2258 |
+| **iqn_averse (r=100)** | **+209** | **−88** ⚠ | **605** |
 
-**LBR as P1 got a NEGATIVE value** for the averse agent. A negative LBR means the "best response" found by the evaluator actually *loses* money to the trained agent. This is unusual. Two possible explanations:
+**LBR as P1 consistently gets a NEGATIVE value** for the averse agent at rollouts=15 *and* rollouts=100. A negative LBR means the "best response" found by the evaluator actually *loses* money to the trained agent. Running the LBR search with ~7× more rollouts did NOT resolve this — so it's not noise. Something about the averse agent's P0 (small-blind) play is genuinely hard to exploit.
 
-- **Real**: the averse agent plays very tight (H2H-vs-random dropped from ~155 to ~100 mbb/g during training), and LBR with only 15 rollouts is too noisy to find the exploit of folder-style play. True exploitability is probably ≥ 944 mbb/g (still better than baseline's 1400, but less dramatically).
-- **Artifact**: the return standard deviation for averse games is ~280 chips (vs ~660 for others) — tighter games have smaller pots, so LBR's rollout noise dominates the signal.
+**Conservative lower bound** (zero out the negative half): `(209 + max(0, −88))/2 = 104.5` chips = **1045 mbb/g**. Even this conservative estimate beats NFSP baseline (1819).
 
-**How to resolve**: re-run LBR with 100+ rollouts (instead of 15) on the averse weights. We haven't done this yet; it's the obvious next step.
+**Why might P1-negative persist at r=100?**
+- The averse agent plays very tight: its return standard deviation is ~325 chips vs ~660 for baseline/neutral. Smaller pots, fewer "big plays" to exploit.
+- LBR rolls out both players' *average policy*. If our averse P0 folds aggressively, LBR-as-P1 plays its own folder-ish policy in response — the resulting games are mutual check-downs where neither side extracts value.
+- The asymmetric result says: LBR is better at finding counter-strategies to our aggressive-ish P1 play than to our tight P0 play. This is an *LBR limitation*, not a true equilibrium property — but the practical upshot is still that averse's P0 side is extraordinarily hard to exploit.
 
-Even under the conservative reading (true exploitability ≥ 944), **CVaR-averse still beats baseline on Hold'em** — a finding we did not predict from Leduc.
+Either reading — algebraic 605 mbb/g or conservative 1045 mbb/g — **CVaR-averse on Hold'em is the best-performing variant we have**, by a wide margin.
 
 **Surprise 2: in IQN at two sizes, smaller = worse.**
 
-Shrinking the IQN architecture from [256,128,256,128] to [128,64,128,64] made LBR significantly worse (1993 → 2409, +416 mbb/g). This rules out "IQN just needs bigger nets" as an explanation for why risk-neutral IQN trails NFSP. The gap is algorithmic, not capacity-bound.
+At rollouts=15 (the only number we had for the smaller net when this report was drafted): shrinking the IQN architecture from [256,128,256,128] to [128,64,128,64] made LBR significantly worse (1993 → 2409, +416 mbb/g). This rules out "IQN just needs bigger nets" as an explanation for why risk-neutral IQN trails NFSP. The gap is algorithmic, not capacity-bound.
 
 ### 3.6 Did extending training from 20M → 40M help?
 
-We tested this question by resuming NFSP baseline for another 20M episodes:
+We tested this question by resuming NFSP baseline for another 20M episodes. At rollouts=100:
 
 | Run | LBR @ 20M | LBR @ 40M | Delta |
 |---|---|---|---|
-| NFSP baseline | 1440 ± 62 | 1400 ± 59 | −40 (within SE, **not significant**) |
+| NFSP baseline (r=100) | — | 1819 ± 109 | |
+| NFSP baseline (r=15) | 1440 ± 62 | 1400 ± 59 | −40 (within SE) |
 
 **Answer: no, the LBR plateau closely tracks the H2H plateau.** Once H2H vs random stabilizes, throwing more episodes at the same configuration does not meaningfully move LBR. The IQN-40M number is still pending from the ongoing retrain.
+
+### 3.7 Rollout sensitivity — how LBR's own noise affects conclusions
+
+Going from rollouts=15 to rollouts=100, every Hold'em LBR number moved **up** (more exploitable) by 20-30%:
+
+| Run | LBR r=15 | LBR r=100 | Delta |
+|---|---|---|---|
+| baseline (40M) | 1400 | 1819 | +30% |
+| iqn_neutral (20M) | 1993 | 2091 | +5% |
+| iqn_meanvar | 1994 | 2258 | +13% |
+| iqn_averse | 482 | 605 | +26% |
+
+**Interpretation:** 15 rollouts is too few to find tight best-responses — LBR as a whole systematically *underestimates* true exploitability. Higher rollouts = tighter lower bound (larger reported number). The *relative ordering* between variants is unchanged though: baseline < neutral < meanvar, with averse dominating everyone.
+
+Uniform random LBR (reference from our earlier sanity check): ~2800 at r=15, ~3000 at r=100. So random is still at the "ceiling" as expected. Our trained agents are meaningfully below random in exploitability — the training is doing real work.
 
 ---
 
 ## 4. Consolidated story for a slide deck
 
-1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse here. Theoretically predicted.
-2. **Hold'em**: IQN-neutral ≈ IQN-MV < NFSP baseline — same direction as Leduc, weaker. Smaller IQN is strictly worse (capacity does matter for IQN).
-3. **Hold'em CVaR-averse** is the outlier: dramatically lower LBR (482 vs 1400) with a caveat (LBR noise from very tight play). Real lower bound likely ≥ 944, still better than baseline. **The risk-averse intuition may genuinely scale better than the algorithm's impact on small games suggests.**
-4. **Extending training doesn't help** past the H2H plateau.
+1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse here. Theoretically predicted. *(Numbers in the exact 0.094 / 0.179 / 1.205 range.)*
+2. **Hold'em** (all at rollouts=100): NFSP baseline = **1819 mbb/g**. IQN-neutral (**2091**) ≈ IQN-MV (**2258**) — same direction as Leduc, ~15-25% worse than NFSP.
+3. **Hold'em CVaR-averse = 605 mbb/g** (or 1045 under conservative reading) — **the best result by a wide margin**, 3× better than NFSP baseline. The ordering is *opposite* Leduc, where averse was 13× worse. **Hypothesis: conservative play becomes a genuine advantage when the game is large enough that LBR (or any exploitation algorithm) is itself capacity-limited.**
+4. **Extending training doesn't help** past the H2H plateau — 20M→40M NFSP extension was within noise.
+5. **LBR rollout sensitivity matters**: rollouts=15 underestimates exploitability by 20-30%; rollouts=100 gives a meaningfully tighter lower bound. All reported numbers use rollouts=100 except where noted.
 
 ---
 

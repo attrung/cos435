@@ -230,14 +230,15 @@ HOLDEM_RUNS = [
     ('holdem_iqn_seeking',  'IQN CVaR seeking',  'C4', '-'),
 ]
 
-# Final LBR numbers (known from eval runs so far; updated manually when new runs finish)
+# Final LBR numbers at rollouts=100 (re-run with higher accuracy).
+# Prior rollouts=15 numbers are preserved in REPORT.md for reference.
 HOLDEM_LBR = {
-    'holdem_small_long':  (1400, 59),   # 40M
-    'holdem_iqn_long':    (1993, 68),   # 20M (resume crashed, retraining now)
-    'holdem_iqn_smaller': (2409, 78),
-    'holdem_iqn_averse':  (482,  22),   # CAVEAT: P1 negative, see report
-    'holdem_iqn_meanvar': (1994, 67),
-    # holdem_iqn_seeking: in progress
+    'holdem_small_long':  (1819, 109),  # 40M, r=100
+    'holdem_iqn_long':    (2091, 123),  # 20M (archive), r=100
+    # 'holdem_iqn_smaller': (pending r=100),
+    'holdem_iqn_averse':  (605,  44),   # r=100; CAVEAT: P1 negative (still), see report
+    'holdem_iqn_meanvar': (2258, 121),  # r=100
+    # holdem_iqn_seeking: training in progress
 }
 
 def plot_holdem():
@@ -317,7 +318,7 @@ def plot_holdem():
     bars = plt.bar(range(len(names)), means, yerr=ses, capsize=4, color=colors, alpha=0.85)
     plt.xticks(range(len(names)), names, rotation=20, ha='right', fontsize=8)
     plt.ylabel('LBR exploitability (mbb/g, lower is better)')
-    plt.title("Hold'em — LBR Exploitability by Variant (± SE)")
+    plt.title("Hold'em — LBR Exploitability by Variant (rollouts=100, ± SE)")
     # Random reference line
     plt.axhline(2800, color='gray', ls='--', lw=1)
     plt.text(len(names)-0.5, 2810, 'uniform random ≈ 2800', ha='right', va='bottom', fontsize=8, color='gray')
