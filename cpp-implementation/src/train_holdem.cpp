@@ -427,6 +427,7 @@ int main(int argc, char* argv[]) {
         else if (a == "--frozen-p0-dir") frozen_p0_dir = next();
         else if (a == "--dqn-buf") dqn_buf = std::stoi(next());
         else if (a == "--res-buf") res_buf = std::stoi(next());
+        else if (a == "--eta") eta = std::stof(next());  // 1.0 = pure DQN (always BR mode)
     }
     const bool frozen_p0 = !frozen_p0_dir.empty();
 
@@ -504,10 +505,19 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: --frozen-p0-dir only supported with --agent nfsp\n";
             return 1;
         }
-        dqn_agents[0]->load_frozen_weights(
-            frozen_p0_dir + "/p0_avg.pt",
-            frozen_p0_dir + "/p0_q.pt");
-        std::cout << "FROZEN p0 loaded from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
+        // If p0_q.pt exists, load both avg and q. Otherwise (e.g. frozen opponent is
+        // an IQN-saved agent with no scalar q_net), load avg only and force AVG mode.
+        std::ifstream q_check(frozen_p0_dir + "/p0_q.pt");
+        if (q_check.is_open()) {
+            q_check.close();
+            dqn_agents[0]->load_frozen_weights(
+                frozen_p0_dir + "/p0_avg.pt",
+                frozen_p0_dir + "/p0_q.pt");
+            std::cout << "FROZEN p0 loaded (avg+q) from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
+        } else {
+            dqn_agents[0]->load_frozen_avg_only(frozen_p0_dir + "/p0_avg.pt");
+            std::cout << "FROZEN p0 loaded (avg-only, force AVG mode) from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
+        }
     }
 
     // Try to resume from checkpoint (only for p1 if frozen)

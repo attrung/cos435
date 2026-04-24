@@ -177,6 +177,14 @@ public:
         sync_fast_weights();
     }
 
+    // Load only avg policy, force this agent into AVG mode (used to freeze
+    // an IQN-trained opponent whose saved weights don't include a scalar q_net).
+    void load_frozen_avg_only(const std::string& avg_path) {
+        torch::load(avg_net_, avg_path);
+        eta_ = 0.0f;  // always AVG mode — avg policy IS the agent's strategy
+        sync_fast_weights();
+    }
+
     void save_checkpoint(const std::string& dir) {
         std::system(("mkdir -p " + dir).c_str());
         torch::save(q_net_, dir + "/q_net.pt");
