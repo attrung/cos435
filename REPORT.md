@@ -201,13 +201,41 @@ Uniform random LBR (reference from our earlier sanity check): ~2800 at r=15, ~30
 
 ---
 
+### 3.8 Head-to-head tournament — LBR's averse result is refuted
+
+Because LBR is known to underestimate exploitability of tight-style agents (the agent's own fallback policy is weak inside LBR's rollouts), we ran a **round-robin H2H tournament** among all 5 finished variants. 5000 games per matchup, half as P0 half as P1.
+
+**Ranking by average winnings vs other variants** (mbb/g):
+
+| Rank | Agent | Avg vs others |
+|---|---|---|
+| 🏆 1 | **baseline (NFSP 40M)** | **+825** |
+| 2 | iqn_meanvar | +256 |
+| 3 | iqn_neutral | +76 |
+| 4 | iqn_smaller | −199 |
+| 5 | **iqn_averse** | **−958 (last)** |
+
+Key individual matchups:
+- baseline vs averse: **+1069** (baseline wins by >1 big blind per hand)
+- meanvar vs averse: +930
+- iqn_neutral vs averse: +872
+- iqn_smaller vs averse: +959 (even the capacity-starved variant crushes averse)
+
+**Interpretation.** LBR rated averse as most-robust (605 mbb/g, best of all variants). H2H says averse is *least*-robust (loses to everyone by almost 1 BB/hand). The LBR result was an artifact of LBR's structural limitation: its rollouts use the agent's own avg policy for all post-decision play, and averse's avg policy is so fold-heavy that rollouts rarely reach informative game states — so LBR can't find exploits that clearly exist.
+
+**Takeaway:** the *"conservative play helps in large games"* hypothesis (§3.4) was wrong. It was LBR-blindness, not genuine robustness. Averse folds too much; every other agent punishes it.
+
+**Order consistency with intuition:** H2H places baseline (closest to Nash) at the top and averse (most distorted objective) at the bottom, with moderate distortions (meanvar, neutral) in the middle. This is the ordering we would have expected a priori from the theory.
+
+
+
 ## 4. Consolidated story for a slide deck
 
-1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse here. Theoretically predicted. *(Numbers in the exact 0.094 / 0.179 / 1.205 range.)*
-2. **Hold'em** (all at rollouts=100): NFSP baseline = **1819 mbb/g**. IQN-neutral (**2091**) ≈ IQN-MV (**2258**) — same direction as Leduc, ~15-25% worse than NFSP.
-3. **Hold'em CVaR-averse = 605 mbb/g** (or 1045 under conservative reading) — **the best result by a wide margin**, 3× better than NFSP baseline. The ordering is *opposite* Leduc, where averse was 13× worse. **Hypothesis: conservative play becomes a genuine advantage when the game is large enough that LBR (or any exploitation algorithm) is itself capacity-limited.**
-4. **Extending training doesn't help** past the H2H plateau — 20M→40M NFSP extension was within noise.
-5. **LBR rollout sensitivity matters**: rollouts=15 underestimates exploitability by 20-30%; rollouts=100 gives a meaningfully tighter lower bound. All reported numbers use rollouts=100 except where noted.
+1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse — matches theory (Nash is defined by mean payoffs; distorted objectives bias best-response away from Nash).
+2. **Hold'em — LBR rollouts=100**: NFSP baseline **1819 mbb/g**, IQN-neutral **2091**, IQN-MV **2258**. CVaR-averse appears best at **605** — but *this is an LBR artifact, not reality*.
+3. **Hold'em — head-to-head tournament**: NFSP baseline **crushes every variant by 500-1000 mbb/g**. CVaR-averse is **dead last**, losing to everyone including the capacity-starved `iqn_smaller`. The H2H ordering matches theoretical prediction exactly: closest-to-Nash wins, most-distorted loses.
+4. **Methodological punchline**: LBR is a weak exploitation method. It underestimates exploitability systematically, and the underestimate is catastrophic for tight/fold-heavy agents (because LBR rollouts inherit the agent's own weak avg policy after the LBR decision). **H2H tournament is a more reliable comparative signal than LBR.**
+5. **Extending training doesn't help** past the H2H-vs-random plateau — 20M→40M NFSP extension was within noise.
 
 ---
 
