@@ -193,6 +193,7 @@ We tested this question by resuming NFSP baseline for another 20M episodes. At r
 | Target | LBR r=100 | **DQN Exploiter** | Ratio (DQN/LBR) |
 |---|---|---|---|
 | **baseline (40M)** | 1819 ± 109 | **473** | **0.26× (LBR overshot 3.8×)** |
+| **baseline (20M)** | — | **73** (!) | — |
 | iqn_neutral (20M) | 2091 ± 123 | **2875** | 1.37× (LBR undershot 1.4×) |
 | iqn_smaller (20M) | 3017 ± 148 | **800** | 0.26× (LBR overshot 3.8×) |
 | iqn_averse (20M) | 605 ± 44 | **893** | 1.48× (LBR undershot 1.5×) |
@@ -212,13 +213,16 @@ We tested this question by resuming NFSP baseline for another 20M episodes. At r
 
 | Rank | Target | DQN exploitability |
 |---|---|---|
-| 🏆 1 | **baseline (NFSP)** | **473** |
-| 2 | iqn_smaller | 800 |
-| 3 | iqn_averse | 893 |
-| 4 | iqn_meanvar | 925 |
-| 5 | iqn_neutral | 2875 |
+| 🏆 1 | **baseline (NFSP, 20M)** | **73** |
+| 2 | **baseline (NFSP, 40M)** | 473 |
+| 3 | iqn_smaller | 800 |
+| 4 | iqn_averse | 893 |
+| 5 | iqn_meanvar | 925 |
+| 6 | iqn_neutral | 2875 |
 
 This **agrees with the H2H tournament ranking** (baseline beats everyone, IQN variants cluster together), giving us triple-confirmation (H2H + DQN exploiter both agreeing, LBR being the outlier methodology).
+
+**Unexpected sub-finding: baseline 20M is less exploitable than baseline 40M (73 vs 473 mbb/g).** This is backwards from the expected "longer training → closer to Nash" story. Most likely explanation: the 20M→40M extension (resumed from checkpoint) introduced subtle policy drift — the extended network is marginally more expressive and therefore has more exploitable patterns. Alternative: single-seed noise (these exploiter numbers are one-shot, not averaged across seeds). Either way, **extending training past 20M does not reduce exploitability** — an important negative result.
 
 ### 3.7 Rollout sensitivity — how LBR's own noise affects conclusions
 

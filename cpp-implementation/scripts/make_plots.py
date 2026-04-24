@@ -249,6 +249,7 @@ HOLDEM_DQN_EXPLOIT = {
     'holdem_iqn_smaller': 800,
     'holdem_iqn_averse':  893,
     'holdem_iqn_meanvar': 925,
+    'holdem_small_long_20M': 73,  # baseline at 20M (pre-extension)
 }
 
 def plot_holdem():
