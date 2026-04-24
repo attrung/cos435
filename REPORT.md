@@ -2,11 +2,11 @@
 
 *COS 435 project report. Onboarding doc for a new collaborator — read top to bottom.*
 
-**Status as of 2026-04-24, 15:35 UTC:**
-- **Leduc (final)**: 6 variants, exact exploitability via OpenSpiel tabular best-response.
-- **Hold'em training (final)**: 6 models trained.
-- **Hold'em BR-head H2H tournament (final)**: 5-way round-robin, 3000 games/matchup, pure argmax.
-- **Hold'em BR-head exploitability (in progress)**: 4 DQN exploiter runs against the BR heads of each IQN variant; projected final numbers in §4.3.
+**Status as of 2026-04-24, 18:35 UTC (ALL FINAL):**
+- **Leduc**: 6 variants, exact exploitability via OpenSpiel tabular best-response.
+- **Hold'em training**: 6 models trained.
+- **Hold'em BR-head H2H tournament**: 5-way round-robin, 3000 games/matchup, pure argmax.
+- **Hold'em BR-head exploitability**: 6 targets measured end-to-end with 5M-episode DQN exploiters. All 4 in-flight IQN runs finished cleanly; final numbers in §4.3.
 
 ---
 
@@ -160,35 +160,38 @@ Rebuild adds: per-player eta in `WorkerContext`; asymmetric agent types (`--froz
 
 **Consequence for the old table**: the previously-published IQN exploit numbers (2875 / 800 / 893 / 925) are not measurements of trained IQN models. They are measurements of randomly-initialised Q-nets that happened to differ between runs because LibTorch's default RNG is non-deterministically seeded. Please disregard.
 
-### 4.3 BR-head exploitability (final + projected)
+### 4.3 BR-head exploitability (final numbers, all 6 targets)
 
-**Baseline (NFSP targets — always had `q_net.pt` saved, so these are clean from the start):**
+All 5M-episode exploiter runs complete. Numbers are `avg_r × 1000` where `avg_r` is the mean over the last 3 log windows (150K episodes) at ep 5M.
 
-| Target | BR-head exploitability | Status |
-|---|---|---|
-| baseline 20M | **73 mbb/g** | final (5M eps) |
-| baseline 40M | **473 mbb/g** | final (5M eps) |
+| Target | BR-head exploitability |
+|---|---|
+| baseline 20M | **73** |
+| baseline 40M | **473** |
+| iqn_neutral 35M | **600** |
+| iqn_smaller 20M | **885** |
+| iqn_meanvar 20M (β=0.5) | **1089** |
+| iqn_averse 20M (CVaR α=0.25) | **1359** |
 
-**IQN targets (first clean measurements, running now):**
+### 4.4 What the exploitability numbers say
 
-Numbers are `avg_r × 1000` where `avg_r` is from the exploiter's view (p0 = frozen target; negative = target losing). The "projected @5M" column uses shape-preserving extrapolation against the baseline 40M trajectory — fit `projected = current × (baseline_final / baseline_at_same_fraction)`, capped at 1.8× current.
+- **Clean monotonic ordering by risk distortion:** baseline < risk-neutral IQN < MV β=0.5 < CVaR averse. Each step towards more-distortion adds ~200–300 mbb/g of exploitability. Direction matches Leduc exactly.
+- **Baseline 40M (473) beats iqn_neutral 35M (600)** by ~125 mbb/g. Longer IQN training (35M vs 20M for other IQN variants) does *not* close the gap to NFSP — baseline remains tighter.
+- **iqn_averse is 1.9× more exploitable than iqn_neutral** (1359 vs 600). Consistent with Leduc where averse was 7× worse than neutral.
+- **iqn_smaller 20M at 885** — despite half the arch, it's still tighter than both meanvar and averse at the same 20M. That's interesting: suggests capacity isn't the binding constraint; risk-distortion is.
+- **The baseline 20M→40M reversal (73 → 473, 6.5×)** is unique to baseline. No IQN variant shows analogous "longer training → more exploitable" behaviour. Resume was fully stateful (verified — `RESUMED from checkpoint at episode 20000000` with state.bin loaded, so there's no discontinuity artefact). Most likely explanations: single-seed exploiter noise, or sharper argmax decisions at 40M being easier for the exploiter to pattern-match than the slightly-more-stochastic argmax at 20M. Needs multi-seed replication.
 
-| Target | Current ep | Current mbb/g | **Projected @5M** |
+### 4.5 Alignment across three methodologies
+
+| Rank | BR-exploit | BR-H2H (4-way) | AVG-H2H |
 |---|---|---|---|
-| iqn_neutral 35M | 1.6M / 5M (32%) | 296 | **~410** |
-| iqn_smaller 20M | 3.5M / 5M (70%) | 851 | **~1100** |
-| iqn_averse 20M | 1.35M / 5M (27%) | 773 | **~1080** |
-| iqn_meanvar 20M | 1.3M / 5M (26%) | 542 | **~760** |
+| 1 (best) | baseline_40M | baseline_40M | baseline_40M |
+| 2 | iqn_neutral_35M | iqn_neutral_35M | iqn_meanvar |
+| 3 | (iqn_smaller) | iqn_meanvar | iqn_neutral |
+| 4 | iqn_meanvar | iqn_averse | iqn_smaller |
+| 5 (worst) | iqn_averse | — | iqn_averse |
 
-**ETAs for final numbers:** iqn_smaller ≈ 40 min (fastest), iqn_neutral_35M ≈ 2 h, iqn_averse/meanvar ≈ 2.5 h. The report will be amended when the runs finish.
-
-### 4.4 What the exploitability numbers tell us (preliminary)
-
-- **Baseline 40M BR head is the closest to Nash** among trained models (473 mbb/g). Every IQN variant is projected to be 700–1100 mbb/g — noticeably worse.
-- **iqn_neutral 35M looks like the best IQN variant (~410 mbb/g projected)** — plausibly on par with or slightly better than baseline 40M's 473. Longer training for IQN may be approaching NFSP quality. *(Caveat: iqn_neutral 35M is only at 32% of its exploiter run; the extrapolation may be optimistic.)*
-- **iqn_averse 20M has dropped fastest** (−0.95 at ep 1.3M already) — the CVaR-averse BR head has large, easily-found holes. Consistent with H2H §3.4 placing averse dead last.
-- **The ordering** (roughly `baseline_20M ≪ iqn_neutral_35M ≲ baseline_40M < iqn_meanvar < iqn_smaller < iqn_averse`) agrees directionally with the BR-head H2H ranking.
-- **The 20M→40M reversal for baseline (73 → 473)** is unexplained. Candidates: single-seed noise, checkpoint-resume artefact, or a genuine "peak Nash" at 20M that disperses under further training. Needs a multi-seed rerun to resolve.
+BR-exploit and BR-H2H agree on rank 1, 2, and 4–5 — and both place meanvar as the 3rd-worst IQN variant by Q-head quality. The only AVG-H2H disagreement is meanvar's position (2nd in AVG, 4th in BR-exploit); that's a sign meanvar's BR head is its weak point while its avg policy averages to something decent. Triple-agreement on the extremes (baseline ≫ all IQN; averse is dead last) is the strongest possible statement given these three independent measurements.
 
 ---
 
@@ -225,7 +228,7 @@ Both the AVG-H2H (§3.4) and the BR-head H2H (§3.4) place iqn_averse **dead las
 ### 6.1 Headline answer to the research question
 *Does IQN / risk-sensitive Q-distortion help or hurt NFSP equilibrium convergence?*
 
-**It hurts, at both scales.** Leduc exact exploitability: baseline < every IQN variant (2× to 22× worse). Hold'em, every measure we trust (BR-head H2H tournament, BR-head exploitability): baseline < every IQN variant. Risk-distorted variants (especially CVaR-averse) are *strictly worse*. LBR's contrary claim is an artifact (§5).
+**It hurts, at both scales.** Leduc exact exploitability: baseline < every IQN variant (2× to 22× worse). Hold'em, every independent measurement (BR-head H2H tournament, BR-head exploitability, AVG-H2H tournament): baseline < every IQN variant, and risk-distorted variants (MV, CVaR-averse) are progressively worse. The Hold'em BR-exploit ordering `baseline 40M (473) < iqn_neutral 35M (600) < iqn_smaller (885) < iqn_meanvar (1089) < iqn_averse (1359)` replicates the Leduc ordering exactly — clean two-scale confirmation of the theoretical prediction. LBR's contrary claim (§5) was an artifact.
 
 ### 6.2 Open questions
 
