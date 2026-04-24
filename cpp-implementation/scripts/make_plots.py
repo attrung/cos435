@@ -235,7 +235,7 @@ HOLDEM_RUNS = [
 HOLDEM_LBR = {
     'holdem_small_long':  (1819, 109),  # 40M, r=100
     'holdem_iqn_long':    (2091, 123),  # 20M (archive), r=100
-    # 'holdem_iqn_smaller': (pending r=100),
+    'holdem_iqn_smaller': (3017, 148),  # 20M, r=100
     'holdem_iqn_averse':  (605,  44),   # r=100; CAVEAT: P1 negative (still), see report
     'holdem_iqn_meanvar': (2258, 121),  # r=100
     # holdem_iqn_seeking: training in progress

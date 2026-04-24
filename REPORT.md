@@ -127,7 +127,7 @@ Different from Leduc because the game and state space are much bigger:
 |---|---|---|---|---|---|
 | `holdem_small_long` | [256,128,256,128] | risk-neutral NFSP | **1819 ± 109** | 1400 ± 59 | **40M** |
 | `holdem_iqn_long` (archive) | [256,128,256,128] | IQN risk-neutral | 2091 ± 123 | 1993 ± 68 | 20M* |
-| `holdem_iqn_smaller` | [128, 64, 128, 64] | IQN risk-neutral | *pending* | 2409 ± 78 | 20M |
+| `holdem_iqn_smaller` | [128, 64, 128, 64] | IQN risk-neutral | 3017 ± 148 | 2409 ± 78 | 20M |
 | `holdem_iqn_meanvar` | [256,128,256,128] | IQN MV β=0.5 | 2258 ± 121 | 1994 ± 67 | 20M |
 | **`holdem_iqn_averse`** | [256,128,256,128] | **IQN CVaR α=0.25** | **605 ± 44** ⚠ | 482 ± 22 | **20M** |
 | `holdem_iqn_seeking` | [256,128,256,128] | IQN CVaR seeking | *pending* | — | 20M |
@@ -192,6 +192,7 @@ Going from rollouts=15 to rollouts=100, every Hold'em LBR number moved **up** (m
 |---|---|---|---|
 | baseline (40M) | 1400 | 1819 | +30% |
 | iqn_neutral (20M) | 1993 | 2091 | +5% |
+| iqn_smaller (20M) | 2409 | 3017 | +25% |
 | iqn_meanvar | 1994 | 2258 | +13% |
 | iqn_averse | 482 | 605 | +26% |
 
