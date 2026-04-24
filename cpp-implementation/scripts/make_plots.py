@@ -241,6 +241,16 @@ HOLDEM_LBR = {
     # holdem_iqn_seeking: training in progress
 }
 
+# DQN trained exploiter — avg_r × 1000 mbb/g. 5M eps of pure Q-greedy training against frozen target.
+# Measures one-sided exploitability (exploiter plays P1 = SB).
+HOLDEM_DQN_EXPLOIT = {
+    'holdem_small_long':  473,    # baseline (40M target)
+    'holdem_iqn_long':    2875,   # iqn_neutral (20M archive)
+    'holdem_iqn_smaller': 800,
+    'holdem_iqn_averse':  893,
+    'holdem_iqn_meanvar': 925,
+}
+
 def plot_holdem():
     # H2H vs random over training
     plt.figure(figsize=(9, 5))
@@ -329,6 +339,43 @@ def plot_holdem():
     plt.savefig(FIGS / 'holdem' / 'final_lbr_bar.png', dpi=140)
     plt.close()
     print(f'wrote {FIGS}/holdem/final_lbr_bar.png')
+
+    # LBR vs DQN exploiter side-by-side
+    plt.figure(figsize=(10, 5.5))
+    short_labels = {
+        'holdem_small_long': 'NFSP baseline\n(40M)',
+        'holdem_iqn_long': 'IQN neutral\n(20M)',
+        'holdem_iqn_smaller': 'IQN smaller\n[128,64,128,64]',
+        'holdem_iqn_averse': 'IQN CVaR-averse\nα=0.25',
+        'holdem_iqn_meanvar': 'IQN MV\nβ=0.5',
+    }
+    names_order = ['holdem_small_long', 'holdem_iqn_long', 'holdem_iqn_smaller',
+                   'holdem_iqn_averse', 'holdem_iqn_meanvar']
+    x = np.arange(len(names_order))
+    width = 0.35
+    lbr_vals = [HOLDEM_LBR[n][0] for n in names_order]
+    lbr_errs = [HOLDEM_LBR[n][1] for n in names_order]
+    dqn_vals = [HOLDEM_DQN_EXPLOIT[n] for n in names_order]
+
+    plt.bar(x - width/2, lbr_vals, width, yerr=lbr_errs, capsize=3,
+            label='LBR r=100 (local BR)', color='steelblue', alpha=0.8)
+    plt.bar(x + width/2, dqn_vals, width,
+            label='DQN exploiter (trained BR, 5M eps)', color='darkorange', alpha=0.85)
+
+    plt.xticks(x, [short_labels[n] for n in names_order], fontsize=9)
+    plt.ylabel('Exploitability (mbb/g)')
+    plt.title("Hold'em — LBR vs trained DQN exploiter")
+    plt.axhline(2800, color='gray', ls='--', lw=1, alpha=0.6)
+    plt.text(len(names_order)-0.4, 2810, 'uniform random ≈ 2800', ha='right', va='bottom', fontsize=8, color='gray')
+    for xi, (lb, dq) in enumerate(zip(lbr_vals, dqn_vals)):
+        plt.text(xi - width/2, lb+40, f'{lb}', ha='center', va='bottom', fontsize=8)
+        plt.text(xi + width/2, dq+40, f'{dq}', ha='center', va='bottom', fontsize=8)
+    plt.legend(fontsize=9, loc='upper right')
+    plt.grid(alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig(FIGS / 'holdem' / 'lbr_vs_dqn_exploiter.png', dpi=140)
+    plt.close()
+    print(f'wrote {FIGS}/holdem/lbr_vs_dqn_exploiter.png')
 
 if __name__ == '__main__':
     plot_leduc()

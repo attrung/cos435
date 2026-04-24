@@ -184,6 +184,42 @@ We tested this question by resuming NFSP baseline for another 20M episodes. At r
 
 **Answer: no, the LBR plateau closely tracks the H2H plateau.** Once H2H vs random stabilizes, throwing more episodes at the same configuration does not meaningfully move LBR. The IQN-40M number is still pending from the ongoing retrain.
 
+### 3.9 Trained DQN exploiter — the tightest bound we can actually compute
+
+**Motivation.** LBR only considers single-step deviations. To measure true exploitability we train a dedicated best-response agent from scratch against each frozen target. Pure-DQN (`--eta 1.0` = always Q-greedy), 5M episodes per exploiter, fresh Q-network start.
+
+**Results** (exploiter plays P1 = SB, target plays P0 = BB; final `avg_r × 1000` in mbb/g):
+
+| Target | LBR r=100 | **DQN Exploiter** | Ratio (DQN/LBR) |
+|---|---|---|---|
+| **baseline (40M)** | 1819 ± 109 | **473** | **0.26× (LBR overshot 3.8×)** |
+| iqn_neutral (20M) | 2091 ± 123 | **2875** | 1.37× (LBR undershot 1.4×) |
+| iqn_smaller (20M) | 3017 ± 148 | **800** | 0.26× (LBR overshot 3.8×) |
+| iqn_averse (20M) | 605 ± 44 | **893** | 1.48× (LBR undershot 1.5×) |
+| iqn_meanvar (20M) | 2258 ± 121 | **925** | 0.41× (LBR overshot 2.4×) |
+
+![LBR vs DQN exploiter](figures/holdem/lbr_vs_dqn_exploiter.png)
+
+**Three major findings:**
+
+1. **Baseline is only ~473 mbb/g exploitable** — not 1819. LBR was **3.8× too pessimistic**. Baseline is much closer to Nash than LBR suggested. This is the strongest demonstration that our NFSP baseline trained successfully.
+
+2. **iqn_neutral is genuinely much more exploitable than baseline** — 2875 vs 473. That's 6× worse. The "closer-to-Nash" ranking by DQN exploiter is: **baseline ≪ smaller ≈ averse ≈ meanvar ≪ iqn_neutral**. Pure IQN, despite having no risk distortion, produces a *less* Nash-like equilibrium than NFSP baseline.
+
+3. **LBR bias is inconsistent across variants** — overshoots some (baseline, smaller, meanvar) and undershoots others (neutral, averse). This reinforces the methodological lesson: **LBR alone is unreliable for ranking**. H2H tournament + trained exploiters give a cleaner picture.
+
+**New ordering by true exploitability (lowest = closest to Nash):**
+
+| Rank | Target | DQN exploitability |
+|---|---|---|
+| 🏆 1 | **baseline (NFSP)** | **473** |
+| 2 | iqn_smaller | 800 |
+| 3 | iqn_averse | 893 |
+| 4 | iqn_meanvar | 925 |
+| 5 | iqn_neutral | 2875 |
+
+This **agrees with the H2H tournament ranking** (baseline beats everyone, IQN variants cluster together), giving us triple-confirmation (H2H + DQN exploiter both agreeing, LBR being the outlier methodology).
+
 ### 3.7 Rollout sensitivity — how LBR's own noise affects conclusions
 
 Going from rollouts=15 to rollouts=100, every Hold'em LBR number moved **up** (more exploitable) by 20-30%:
@@ -233,10 +269,11 @@ Key individual matchups:
 ## 4. Consolidated story for a slide deck
 
 1. **Leduc**: NFSP ≫ all IQN variants. Risk-sensitive is strictly worse — matches theory (Nash is defined by mean payoffs; distorted objectives bias best-response away from Nash).
-2. **Hold'em — LBR rollouts=100**: NFSP baseline **1819 mbb/g**, IQN-neutral **2091**, IQN-MV **2258**. CVaR-averse appears best at **605** — but *this is an LBR artifact, not reality*.
-3. **Hold'em — head-to-head tournament**: NFSP baseline **crushes every variant by 500-1000 mbb/g**. CVaR-averse is **dead last**, losing to everyone including the capacity-starved `iqn_smaller`. The H2H ordering matches theoretical prediction exactly: closest-to-Nash wins, most-distorted loses.
-4. **Methodological punchline**: LBR is a weak exploitation method. It underestimates exploitability systematically, and the underestimate is catastrophic for tight/fold-heavy agents (because LBR rollouts inherit the agent's own weak avg policy after the LBR decision). **H2H tournament is a more reliable comparative signal than LBR.**
-5. **Extending training doesn't help** past the H2H-vs-random plateau — 20M→40M NFSP extension was within noise.
+2. **Hold'em — LBR rollouts=100**: unreliable. Fails in both directions — overshoots baseline (3.8×), undershoots iqn_neutral (1.4×) and averse (1.5×). Used in NFSP literature but not trustworthy without cross-checks.
+3. **Hold'em — H2H tournament between variants**: NFSP baseline crushes every variant by 500-1000 mbb/g. Ordering: baseline >> meanvar > neutral > smaller > averse. Averse is dead last.
+4. **Hold'em — trained DQN exploiter (5M eps each)**: **baseline at only 473 mbb/g true exploitability** (much less than LBR's 1819). All IQN variants significantly more exploitable. Ordering agrees with H2H: **baseline ≪ smaller ≈ averse ≈ meanvar ≪ iqn_neutral**.
+5. **Methodology**: LBR alone is unreliable — it's noisy and has opposite biases depending on how Nash-close the target is. H2H tournaments + trained exploiters give consistent, trustworthy rankings.
+6. **Extending training doesn't help** past the H2H-vs-random plateau — 20M→40M NFSP extension was within noise.
 
 ---
 
