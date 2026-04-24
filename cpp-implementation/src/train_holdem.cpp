@@ -107,7 +107,8 @@ struct FastNetsView {
 
 struct WorkerContext {
     FastNetsView* views[2];  // one per player, protected by mutex
-    float eta;
+    float etas[2];           // per-player eta: lets frozen target use a different mode
+                             // (e.g. frozen p0 at 0.0 = always AVG, trainable p1 at 1.0 = always BR)
     float epsilon_start, epsilon_end;
     int epsilon_decay_duration;
     std::atomic<int> br_steps[2];
@@ -120,7 +121,7 @@ void play_episode_worker(HoldemState& state, WorkerContext& ctx,
 
     std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
     for (int p = 0; p < 2; ++p)
-        result.modes[p] = (uniform(rng) < ctx.eta) ? 0 : 1;
+        result.modes[p] = (uniform(rng) < ctx.etas[p]) ? 0 : 1;
 
     struct PT { std::array<float,INFO_STATE_SIZE> s; int a; std::array<float,NUM_ACTIONS> m; };
     PT pending[2][MAX_TRANS_PER_PLAYER];
@@ -397,6 +398,10 @@ int main(int argc, char* argv[]) {
     std::string eval_script = "eval/eval_holdem_h2h.py";
     std::string hidden_str;  // comma-sep arch override, e.g. "128,64,128,64"
     std::string frozen_p0_dir;  // if set: load p0 from this dir, freeze (no learner, no buffer adds)
+    std::string frozen_p0_agent;  // override agent type for frozen p0 (default: same as --agent).
+                                  // Enables asymmetric runs: frozen p0 = nfsp_iqn, trainable p1 = nfsp.
+    bool frozen_play_br = false;  // if true, frozen p0 plays its BR head (q_net / iqn_net) instead
+                                  // of avg policy. Used for method-B BR-head exploitability.
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -425,11 +430,15 @@ int main(int argc, char* argv[]) {
         else if (a == "--eval-script") eval_script = next();
         else if (a == "--hidden") hidden_str = next();
         else if (a == "--frozen-p0-dir") frozen_p0_dir = next();
+        else if (a == "--frozen-p0-agent") frozen_p0_agent = next();
+        else if (a == "--frozen-play-br") frozen_play_br = true;
         else if (a == "--dqn-buf") dqn_buf = std::stoi(next());
         else if (a == "--res-buf") res_buf = std::stoi(next());
         else if (a == "--eta") eta = std::stof(next());  // 1.0 = pure DQN (always BR mode)
     }
     const bool frozen_p0 = !frozen_p0_dir.empty();
+    const std::string p0_agent_type = frozen_p0 && !frozen_p0_agent.empty() ? frozen_p0_agent : agent_type;
+    const std::string p1_agent_type = agent_type;
 
     torch::set_num_threads(1);
     std::mt19937 rng(seed);
@@ -453,7 +462,8 @@ int main(int argc, char* argv[]) {
     else if (risk == "seeking") dist = RiskDistortion::SEEKING;
 
     for (int p = 0; p < 2; ++p) {
-        if (agent_type == "nfsp") {
+        const std::string& t = (p == 0) ? p0_agent_type : p1_agent_type;
+        if (t == "nfsp") {
             auto ag = std::make_unique<NFSPAgent>(
                 p, eta, dqn_lr, avg_lr, hidden_sizes, batch_size, dqn_buf, res_buf,
                 learn_every, min_buf, target_update_freq_steps, tau, eps_start, eps_end, eps_duration, gamma,
@@ -499,24 +509,52 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // If --frozen-p0-dir set, load p0's weights from that dir (only supported for nfsp agent_type)
+    // If --frozen-p0-dir set, load p0's weights from that dir.
+    // Supports both:
+    //   (a) final_weights layout: p0_avg.pt, p0_q.pt (nfsp) or p0_iqn_net.pt (nfsp_iqn)
+    //   (b) checkpoint layout:    avg_net.pt, q_net.pt (nfsp) or iqn_net.pt (nfsp_iqn)
+    // --frozen-play-br forces frozen p0 into BR mode (plays q_net / iqn_net).
+    // Without it, frozen p0 plays AVG mode.
     if (frozen_p0) {
-        if (agent_type != "nfsp") {
-            std::cerr << "ERROR: --frozen-p0-dir only supported with --agent nfsp\n";
+        auto exists = [](const std::string& p) { std::ifstream f(p); return f.good(); };
+        auto pick = [&](const std::vector<std::string>& cands) -> std::string {
+            for (auto& c : cands) if (exists(frozen_p0_dir + "/" + c)) return frozen_p0_dir + "/" + c;
+            return "";
+        };
+        std::string avg_path = pick({"p0_avg.pt", "avg_net.pt"});
+        if (avg_path.empty()) {
+            std::cerr << "ERROR: no avg weights found in " << frozen_p0_dir
+                      << " (looked for p0_avg.pt, avg_net.pt)\n";
             return 1;
         }
-        // If p0_q.pt exists, load both avg and q. Otherwise (e.g. frozen opponent is
-        // an IQN-saved agent with no scalar q_net), load avg only and force AVG mode.
-        std::ifstream q_check(frozen_p0_dir + "/p0_q.pt");
-        if (q_check.is_open()) {
-            q_check.close();
-            dqn_agents[0]->load_frozen_weights(
-                frozen_p0_dir + "/p0_avg.pt",
-                frozen_p0_dir + "/p0_q.pt");
-            std::cout << "FROZEN p0 loaded (avg+q) from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
-        } else {
-            dqn_agents[0]->load_frozen_avg_only(frozen_p0_dir + "/p0_avg.pt");
-            std::cout << "FROZEN p0 loaded (avg-only, force AVG mode) from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
+        if (p0_agent_type == "nfsp") {
+            std::string q_path = pick({"p0_q.pt", "q_net.pt"});
+            if (!q_path.empty()) {
+                dqn_agents[0]->load_frozen_weights(avg_path, q_path, frozen_play_br);
+                std::cout << "FROZEN p0 (nfsp) loaded avg+q, mode="
+                          << (frozen_play_br ? "BR" : "AVG") << ", from " << frozen_p0_dir << std::endl;
+            } else {
+                if (frozen_play_br) {
+                    std::cerr << "ERROR: --frozen-play-br requires q_net in frozen dir\n";
+                    return 1;
+                }
+                dqn_agents[0]->load_frozen_avg_only(avg_path);
+                std::cout << "FROZEN p0 (nfsp) loaded avg-only (AVG mode) from " << frozen_p0_dir << std::endl;
+            }
+        } else {  // nfsp_iqn
+            std::string iqn_path = pick({"p0_iqn_net.pt", "iqn_net.pt"});
+            if (!iqn_path.empty()) {
+                iqn_agents[0]->load_frozen_weights(avg_path, iqn_path, frozen_play_br);
+                std::cout << "FROZEN p0 (nfsp_iqn) loaded avg+iqn, mode="
+                          << (frozen_play_br ? "BR" : "AVG") << ", from " << frozen_p0_dir << std::endl;
+            } else {
+                if (frozen_play_br) {
+                    std::cerr << "ERROR: --frozen-play-br requires iqn_net in frozen dir\n";
+                    return 1;
+                }
+                iqn_agents[0]->load_frozen_avg_only(avg_path);
+                std::cout << "FROZEN p0 (nfsp_iqn) loaded avg-only (AVG mode) from " << frozen_p0_dir << std::endl;
+            }
         }
     }
 
@@ -542,18 +580,23 @@ int main(int argc, char* argv[]) {
 
     // Worker context
     WorkerContext wctx;
-    wctx.eta = eta;
+    // Per-player eta: trainable side uses the global --eta; frozen side uses
+    // 1.0 if --frozen-play-br else 0.0 (so the worker picks BR or AVG mode
+    // consistently with how the frozen agent was loaded).
+    wctx.etas[0] = frozen_p0 ? (frozen_play_br ? 1.0f : 0.0f) : eta;
+    wctx.etas[1] = eta;
     wctx.epsilon_start = eps_start;
     wctx.epsilon_end = eps_end;
     wctx.epsilon_decay_duration = eps_duration;
-    // FastMLP views (worker-visible, mutex-protected)
-    // IQN's mean-Q approximation is 1-layer; baseline uses full architecture
-    std::vector<int> fast_q_sizes = (agent_type == "nfsp_iqn")
-        ? std::vector<int>{hidden_sizes[0]}
-        : hidden_sizes;
+    // FastMLP views (worker-visible, mutex-protected). IQN uses a 1-layer mean-Q
+    // approximation; NFSP uses the full architecture. With asymmetric agents
+    // the two players may need different fast_q shapes.
+    auto fast_q_sizes_for = [&](const std::string& t) -> std::vector<int> {
+        return (t == "nfsp_iqn") ? std::vector<int>{hidden_sizes[0]} : hidden_sizes;
+    };
     FastNetsView views[2];
     for (int p = 0; p < 2; ++p) {
-        views[p].fast_q.init(fast_q_sizes);
+        views[p].fast_q.init(fast_q_sizes_for(p == 0 ? p0_agent_type : p1_agent_type));
         views[p].fast_avg.init(hidden_sizes);
         ops[p].sync_fast_to(views[p].fast_q, views[p].fast_avg);
         wctx.views[p] = &views[p];
@@ -706,8 +749,9 @@ int main(int argc, char* argv[]) {
 
     stop.store(true); queue.shutdown(); queue.drain();
     for (auto& w : workers) w.join();
-    // Shut down gradient threads after workers have stopped producing more data
-    for (int p = 0; p < 2; ++p) learners[p]->shutdown();
+    // Shut down gradient threads after workers have stopped producing more data.
+    // learners[0] is null when frozen_p0 is set.
+    for (int p = 0; p < 2; ++p) if (learners[p]) learners[p]->shutdown();
 
     auto tf = std::chrono::steady_clock::now();
     double total = std::chrono::duration<double>(tf - t0).count();

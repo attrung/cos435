@@ -170,12 +170,13 @@ public:
 
     // Load just network weights (no optimizer state, no buffers). Used when
     // freezing this agent as an opponent (no further training).
-    void load_frozen_weights(const std::string& avg_path, const std::string& q_path) {
+    // play_br=true forces BR mode (eta=1, plays q_net). play_br=false forces AVG
+    // mode (eta=0, plays avg policy) — the usual NFSP interpretation of "strategy".
+    void load_frozen_weights(const std::string& avg_path, const std::string& q_path, bool play_br = false) {
         torch::load(avg_net_, avg_path);
         torch::load(q_net_, q_path);
-        torch::load(target_net_, q_path);  // target = q_net for frozen agent
-        eta_ = 0.0f;  // ALWAYS force AVG mode — the agent's strategy IS its avg policy;
-                     // Q-network is only the best-response head (not the policy to evaluate against).
+        torch::load(target_net_, q_path);
+        eta_ = play_br ? 1.0f : 0.0f;
         sync_fast_weights();
     }
 

@@ -188,6 +188,24 @@ public:
 
     void save_weights(const std::string& path) {
         torch::save(avg_net_, path + "_avg.pt");
+        torch::save(iqn_net_, path + "_iqn_net.pt");
+    }
+
+    // Load frozen target: avg + iqn_net (BR head). play_br=true forces the agent
+    // to always play its IQN BR head (eta=1). play_br=false forces AVG mode.
+    void load_frozen_weights(const std::string& avg_path, const std::string& iqn_path, bool play_br) {
+        torch::load(avg_net_, avg_path);
+        torch::load(iqn_net_, iqn_path);
+        torch::load(iqn_target_, iqn_path);
+        eta_ = play_br ? 1.0f : 0.0f;
+        sync_fast_weights();
+    }
+
+    // Load frozen target: avg only. Forces AVG mode (can't play BR without iqn_net).
+    void load_frozen_avg_only(const std::string& avg_path) {
+        torch::load(avg_net_, avg_path);
+        eta_ = 0.0f;
+        sync_fast_weights();
     }
 
     void save_checkpoint(const std::string& dir) {
