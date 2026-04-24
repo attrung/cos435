@@ -174,6 +174,8 @@ public:
         torch::load(avg_net_, avg_path);
         torch::load(q_net_, q_path);
         torch::load(target_net_, q_path);  // target = q_net for frozen agent
+        eta_ = 0.0f;  // ALWAYS force AVG mode — the agent's strategy IS its avg policy;
+                     // Q-network is only the best-response head (not the policy to evaluate against).
         sync_fast_weights();
     }
 
