@@ -168,6 +168,15 @@ public:
         torch::save(q_net_, path + "_q.pt");
     }
 
+    // Load just network weights (no optimizer state, no buffers). Used when
+    // freezing this agent as an opponent (no further training).
+    void load_frozen_weights(const std::string& avg_path, const std::string& q_path) {
+        torch::load(avg_net_, avg_path);
+        torch::load(q_net_, q_path);
+        torch::load(target_net_, q_path);  // target = q_net for frozen agent
+        sync_fast_weights();
+    }
+
     void save_checkpoint(const std::string& dir) {
         std::system(("mkdir -p " + dir).c_str());
         torch::save(q_net_, dir + "/q_net.pt");

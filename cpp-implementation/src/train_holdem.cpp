@@ -396,6 +396,7 @@ int main(int argc, char* argv[]) {
     float var_penalty = 0.0f;
     std::string eval_script = "eval/eval_holdem_h2h.py";
     std::string hidden_str;  // comma-sep arch override, e.g. "128,64,128,64"
+    std::string frozen_p0_dir;  // if set: load p0 from this dir, freeze (no learner, no buffer adds)
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -423,7 +424,11 @@ int main(int argc, char* argv[]) {
         else if (a == "--eps-duration") eps_duration = std::stoi(next());
         else if (a == "--eval-script") eval_script = next();
         else if (a == "--hidden") hidden_str = next();
+        else if (a == "--frozen-p0-dir") frozen_p0_dir = next();
+        else if (a == "--dqn-buf") dqn_buf = std::stoi(next());
+        else if (a == "--res-buf") res_buf = std::stoi(next());
     }
+    const bool frozen_p0 = !frozen_p0_dir.empty();
 
     torch::set_num_threads(1);
     std::mt19937 rng(seed);
@@ -493,18 +498,30 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Try to resume from checkpoint
+    // If --frozen-p0-dir set, load p0's weights from that dir (only supported for nfsp agent_type)
+    if (frozen_p0) {
+        if (agent_type != "nfsp") {
+            std::cerr << "ERROR: --frozen-p0-dir only supported with --agent nfsp\n";
+            return 1;
+        }
+        dqn_agents[0]->load_frozen_weights(
+            frozen_p0_dir + "/p0_avg.pt",
+            frozen_p0_dir + "/p0_q.pt");
+        std::cout << "FROZEN p0 loaded from " << frozen_p0_dir << " — p0 will not learn." << std::endl;
+    }
+
+    // Try to resume from checkpoint (only for p1 if frozen)
     int start_episode = 0;
     std::system(("mkdir -p " + checkpoint_dir).c_str());
     {
         int latest = 0;
         for (int ep = checkpoint_freq; ep <= num_episodes; ep += checkpoint_freq) {
-            std::string dir = checkpoint_dir + "/" + name + "_ep" + std::to_string(ep) + "_p0";
+            std::string dir = checkpoint_dir + "/" + name + "_ep" + std::to_string(ep) + "_p" + (frozen_p0 ? "1" : "0");
             std::ifstream test(dir + "/state.bin");
             if (test.is_open()) latest = ep;
         }
         if (latest > 0) {
-            for (int p = 0; p < 2; ++p) {
+            for (int p = (frozen_p0 ? 1 : 0); p < 2; ++p) {
                 std::string dir = checkpoint_dir + "/" + name + "_ep" + std::to_string(latest) + "_p" + std::to_string(p);
                 ops[p].load_checkpoint(dir);
             }
@@ -541,9 +558,10 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, [](int) { stop_ptr->store(true); });
     std::signal(SIGTERM, [](int) { stop_ptr->store(true); });
 
-    // Start per-agent gradient threads
+    // Start per-agent gradient threads (skip p0 if frozen)
     std::unique_ptr<AgentLearner> learners[2];
     for (int p = 0; p < 2; ++p) {
+        if (frozen_p0 && p == 0) continue;
         learners[p] = std::make_unique<AgentLearner>(
             p, &ops[p], &views[p], &wctx.br_steps[p], seed);
     }
@@ -591,6 +609,7 @@ int main(int argc, char* argv[]) {
             if (++episode > num_episodes) break;
 
             for (int p = 0; p < 2; ++p) {
+                if (frozen_p0 && p == 0) continue;  // frozen agent needs no buffer fill
                 for (int ti = 0; ti < result.num_transitions[p]; ++ti) {
                     auto& t = result.transitions[p][ti];
                     ops[p].add_transition(t.state, t.action, t.reward, t.next_state, t.done, t.next_legal);
@@ -605,6 +624,7 @@ int main(int argc, char* argv[]) {
             // Signal gradient threads with (game_steps, br_steps) deltas.
             // The async AgentLearner handles all learning + FastMLP sync.
             for (int p = 0; p < 2; ++p) {
+                if (frozen_p0 && p == 0) continue;  // no learner for frozen agent
                 int ns = result.num_transitions[p] + 1;
                 bool br = (result.modes[p] == 0);
                 learners[p]->signal(ns, br ? ns : 0);
@@ -656,6 +676,7 @@ int main(int argc, char* argv[]) {
 
             if (episode % checkpoint_freq == 0) {
                 for (int p = 0; p < 2; ++p) {
+                    if (frozen_p0 && p == 0) continue;  // no checkpoint for frozen agent
                     std::string dir = checkpoint_dir + "/" + name + "_ep" +
                                      std::to_string(episode) + "_p" + std::to_string(p);
                     ops[p].save_checkpoint(dir);
