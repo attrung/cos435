@@ -195,6 +195,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--games', type=int, default=2000, help='games per matchup (half P0, half P1)')
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--only', type=str, default='',
+                        help='comma-sep subset of agent names to keep (e.g. '
+                             '"baseline_40M,iqn_neutral_35M,iqn_averse_20M,iqn_meanvar_20M")')
     args = parser.parse_args()
 
     torch.set_num_threads(1)
@@ -244,6 +247,11 @@ def main():
                    build_iqn(f'{SHARED}/checkpoints/holdem_iqn_meanvar_ep20000000_p0/iqn_net.pt',
                              f'{SHARED}/checkpoints/holdem_iqn_meanvar_ep20000000_p1/iqn_net.pt',
                              'iqn_meanvar_20M', 'none')))
+
+    if args.only:
+        keep = set(s.strip() for s in args.only.split(','))
+        AGENTS = [a for a in AGENTS if a[0] in keep]
+        print(f'\nFiltered to: {[n for n,_ in AGENTS]}')
 
     print()
     game = pyspiel.load_game(GAME_STR)
