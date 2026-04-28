@@ -21,6 +21,13 @@
 enum class RiskDistortion { NONE, CVAR, SEEKING };
 #endif
 
+// Mean-variance application mode in IQN training.
+//   NONE       — vanilla risk-neutral target (mean over quantiles)
+//   TRAIN      — replace next-state argmax with argmax(mean − β·std)
+//   TRAIN_FULL — same argmax, AND shift each per-quantile target by −β·std_chosen
+//                (network learns quantiles of Markowitz-shifted return; Tamar et al.)
+enum class VarMode { NONE, TRAIN, TRAIN_FULL };
+
 class NFSPIQNAgent {
 public:
     NFSPIQNAgent(int player_id, float eta, float dqn_lr, float avg_lr,
@@ -31,7 +38,8 @@ public:
                  int iqn_num_quantiles, int iqn_num_quantiles_eval,
                  int iqn_embedding_dim, float iqn_kappa,
                  RiskDistortion distortion, float distortion_param1, float distortion_param2,
-                 float variance_penalty, int num_dqn_updates = 2)
+                 float variance_penalty, int num_dqn_updates = 2,
+                 VarMode var_mode = VarMode::NONE, float beta = 0.0f)
         : player_id_(player_id), eta_(eta), gamma_(gamma),
           batch_size_(batch_size), learn_every_(learn_every),
           min_buffer_size_(min_buffer_size),
@@ -43,6 +51,7 @@ public:
           kappa_(iqn_kappa),
           distortion_(distortion), dist_p1_(distortion_param1), dist_p2_(distortion_param2),
           variance_penalty_(variance_penalty),
+          var_mode_(var_mode), beta_(beta),
           hidden_sizes_(hidden_sizes),
           // IQN uses its own network architecture (not VarMLP)
           // hidden_size for IQN = first hidden layer size
@@ -257,6 +266,7 @@ public:
     int br_steps_val() const { return br_steps_; }
     float last_br_loss() const { return last_br_loss_.load(std::memory_order_relaxed); }
     float last_avg_loss() const { return last_avg_loss_.load(std::memory_order_relaxed); }
+    float last_frac_changed() const { return last_frac_changed_.load(std::memory_order_relaxed); }
     int game_steps() const { return game_steps_; }
 
 private:
@@ -332,13 +342,39 @@ private:
         {
             torch::NoGradGuard no_grad;
             auto taus_target = torch::rand({batch_size_, N_});
-            auto next_quantiles = iqn_target_->forward(dqn_ns_, taus_target);
-            auto next_q_avg = next_quantiles.mean(1);
-            // Proper masking for illegal actions
-            next_q_avg = next_q_avg.masked_fill(dqn_lm_ < 0.5f, -std::numeric_limits<float>::infinity());
-            auto best_actions = next_q_avg.argmax(1);
+            auto next_quantiles = iqn_target_->forward(dqn_ns_, taus_target);  // (B, N, A)
+            auto next_q_avg = next_quantiles.mean(1);                          // (B, A)
+
+            // Risk-sensitive next-state action selection (Markowitz argmax).
+            auto next_q_score = next_q_avg;
+            torch::Tensor next_q_std;
+            if (var_mode_ != VarMode::NONE) {
+                next_q_std = next_quantiles.std(1, /*unbiased=*/false);        // (B, A)
+                next_q_score = next_q_avg - beta_ * next_q_std;
+            }
+
+            auto neg_inf = -std::numeric_limits<float>::infinity();
+            auto next_q_score_masked = next_q_score.masked_fill(dqn_lm_ < 0.5f, neg_inf);
+            auto best_actions = next_q_score_masked.argmax(1);                 // (B,)
+
+            // Instrumentation: fraction of batch rows where the std penalty changed argmax.
+            if (var_mode_ != VarMode::NONE) {
+                auto next_q_avg_masked = next_q_avg.masked_fill(dqn_lm_ < 0.5f, neg_inf);
+                auto vanilla_actions = next_q_avg_masked.argmax(1);
+                auto changed = (best_actions != vanilla_actions).to(torch::kFloat32).mean();
+                last_frac_changed_.store(changed.item<float>(), std::memory_order_relaxed);
+            }
+
+            // Per-quantile bootstrap of the chosen next action.
             next_quantiles = next_quantiles.gather(
-                2, best_actions.unsqueeze(1).unsqueeze(2).expand({-1, N_, -1})).squeeze(2);
+                2, best_actions.unsqueeze(1).unsqueeze(2).expand({-1, N_, -1})).squeeze(2);  // (B, N)
+
+            // TRAIN_FULL: shift every quantile by −β·std of the chosen action.
+            if (var_mode_ == VarMode::TRAIN_FULL) {
+                auto std_chosen = next_q_std.gather(1, best_actions.unsqueeze(1));  // (B, 1)
+                next_quantiles = next_quantiles - beta_ * std_chosen;
+            }
+
             targets = dqn_r_.unsqueeze(1) + gamma_ * (1.0f - dqn_d_.unsqueeze(1)) * next_quantiles;
         }
 
@@ -402,6 +438,9 @@ private:
     RiskDistortion distortion_;
     float dist_p1_, dist_p2_;
     float variance_penalty_;
+    VarMode var_mode_;
+    float beta_;
+    std::atomic<float> last_frac_changed_{0.0f};
     std::vector<int> hidden_sizes_;
 
     IQNNetwork iqn_net_, iqn_target_;

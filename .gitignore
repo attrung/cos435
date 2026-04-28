@@ -4,30 +4,31 @@ cpp-implementation/third_party/
 cpp-implementation/CMakeCache.txt
 cpp-implementation/CMakeFiles/
 
-# ── Model weights, checkpoints, buffers ────────────────────────
-# Weight directories (both games, all variants) — match dirs AND symlinks
+# ── Model weights, checkpoints, buffers (regenerable) ──────────
+# Note: paper-relevant snapshots live at top-level weights/ and ARE tracked.
 cpp-implementation/final_weights
 cpp-implementation/final_weights_*
 cpp-implementation/eval_weights_*
-# Checkpoint dir (symlinked to /mnt/data on GCP box)
+cpp-implementation/snapshots/
 cpp-implementation/checkpoints
 
-# ── Training artifacts (regenerable) ───────────────────────────
+# ── Training scratch (regenerable) ─────────────────────────────
+# Note: paper-relevant logs/CSVs live at top-level results/ and ARE tracked.
 cpp-implementation/logs/
 cpp-implementation/results/
 
-# claude-automated Python-side artifacts
-claude-automated/results/checkpoints/
-claude-automated/results/.progress/
-claude-automated/results/**/*.log
-claude-automated/results/**/*.jsonl
-claude-automated/results/**/*.npy
-claude-automated/results/**/*.csv
+# ── Legacy python impl scratch ────────────────────────────────
+legacy/python-leduc-impl/results/checkpoints/
+legacy/python-leduc-impl/results/.progress/
+legacy/python-leduc-impl/results/**/*.log
+legacy/python-leduc-impl/results/**/*.jsonl
+legacy/python-leduc-impl/results/**/*.npy
+legacy/python-leduc-impl/results/**/*.csv
 
 # ── Stale conversation / scratch dumps ─────────────────────────
 cpp-implementation/*.txt
 
-# ── Python ──────────────────────────────────────────────────────
+# ── Python ─────────────────────────────────────────────────────
 __pycache__/
 *.py[co]
 *.egg-info/

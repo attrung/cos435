@@ -1,0 +1,117 @@
+=== H2H 3-way watcher started Fri Apr 24 21:27:32 UTC 2026 ===
+waiting for all 3 snapshots @ ep=10000000...
+all 3 snapshots present for ep=10000000 at Fri Apr 24 22:24:33 UTC 2026
+[ep=10000000] baseline vs meanvar
+H2H: baseline_10000000 (snapshots/holdem_64x64_baseline/ep10000000) vs meanvar_10000000 (snapshots/holdem_64x64_meanvar/ep10000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_10000000 avg chips vs meanvar_10000000: +78.97 ± 14.05   (+789.7 ± 140.5 mbb/g)   [17s]
+  -> baseline_10000000 wins
+[ep=10000000] baseline vs neutral
+H2H: baseline_10000000 (snapshots/holdem_64x64_baseline/ep10000000) vs neutral_10000000 (snapshots/holdem_64x64_iqn_neutral/ep10000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_10000000 avg chips vs neutral_10000000: +68.24 ± 13.97   (+682.4 ± 139.7 mbb/g)   [17s]
+  -> baseline_10000000 wins
+[ep=10000000] meanvar vs neutral
+H2H: meanvar_10000000 (snapshots/holdem_64x64_meanvar/ep10000000) vs neutral_10000000 (snapshots/holdem_64x64_iqn_neutral/ep10000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+meanvar_10000000 avg chips vs neutral_10000000: -0.65 ± 15.65   (-6.5 ± 156.5 mbb/g)   [18s]
+  -> neutral_10000000 wins
+waiting for all 3 snapshots @ ep=20000000...
+all 3 snapshots present for ep=20000000 at Fri Apr 24 23:23:02 UTC 2026
+[ep=20000000] baseline vs meanvar
+H2H: baseline_20000000 (snapshots/holdem_64x64_baseline/ep20000000) vs meanvar_20000000 (snapshots/holdem_64x64_meanvar/ep20000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_20000000 avg chips vs meanvar_20000000: +63.54 ± 12.93   (+635.4 ± 129.3 mbb/g)   [17s]
+  -> baseline_20000000 wins
+[ep=20000000] baseline vs neutral
+H2H: baseline_20000000 (snapshots/holdem_64x64_baseline/ep20000000) vs neutral_20000000 (snapshots/holdem_64x64_iqn_neutral/ep20000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_20000000 avg chips vs neutral_20000000: +64.32 ± 13.48   (+643.2 ± 134.8 mbb/g)   [18s]
+  -> baseline_20000000 wins
+[ep=20000000] meanvar vs neutral
+H2H: meanvar_20000000 (snapshots/holdem_64x64_meanvar/ep20000000) vs neutral_20000000 (snapshots/holdem_64x64_iqn_neutral/ep20000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+meanvar_20000000 avg chips vs neutral_20000000: +6.56 ± 15.02   (+65.6 ± 150.2 mbb/g)   [17s]
+  -> meanvar_20000000 wins
+waiting for all 3 snapshots @ ep=30000000...
+all 3 snapshots present for ep=30000000 at Sat Apr 25 00:22:01 UTC 2026
+[ep=30000000] baseline vs meanvar
+H2H: baseline_30000000 (snapshots/holdem_64x64_baseline/ep30000000) vs meanvar_30000000 (snapshots/holdem_64x64_meanvar/ep30000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_30000000 avg chips vs meanvar_30000000: +53.33 ± 13.29   (+533.3 ± 132.9 mbb/g)   [16s]
+  -> baseline_30000000 wins
+[ep=30000000] baseline vs neutral
+H2H: baseline_30000000 (snapshots/holdem_64x64_baseline/ep30000000) vs neutral_30000000 (snapshots/holdem_64x64_iqn_neutral/ep30000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_30000000 avg chips vs neutral_30000000: +83.61 ± 12.99   (+836.1 ± 129.9 mbb/g)   [16s]
+  -> baseline_30000000 wins
+[ep=30000000] meanvar vs neutral
+H2H: meanvar_30000000 (snapshots/holdem_64x64_meanvar/ep30000000) vs neutral_30000000 (snapshots/holdem_64x64_iqn_neutral/ep30000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+meanvar_30000000 avg chips vs neutral_30000000: +1.15 ± 15.49   (+11.5 ± 154.9 mbb/g)   [20s]
+  -> meanvar_30000000 wins
+waiting for all 3 snapshots @ ep=40000000...
+all 3 snapshots present for ep=40000000 at Sat Apr 25 01:21:01 UTC 2026
+[ep=40000000] baseline vs meanvar
+H2H: baseline_40000000 (snapshots/holdem_64x64_baseline/ep40000000) vs meanvar_40000000 (snapshots/holdem_64x64_meanvar/ep40000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_40000000 avg chips vs meanvar_40000000: +77.51 ± 12.91   (+775.1 ± 129.1 mbb/g)   [18s]
+  -> baseline_40000000 wins
+[ep=40000000] baseline vs neutral
+H2H: baseline_40000000 (snapshots/holdem_64x64_baseline/ep40000000) vs neutral_40000000 (snapshots/holdem_64x64_iqn_neutral/ep40000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_40000000 avg chips vs neutral_40000000: +75.22 ± 12.69   (+752.2 ± 126.9 mbb/g)   [16s]
+  -> baseline_40000000 wins
+[ep=40000000] meanvar vs neutral
+H2H: meanvar_40000000 (snapshots/holdem_64x64_meanvar/ep40000000) vs neutral_40000000 (snapshots/holdem_64x64_iqn_neutral/ep40000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+meanvar_40000000 avg chips vs neutral_40000000: +22.53 ± 14.48   (+225.3 ± 144.8 mbb/g)   [18s]
+  -> meanvar_40000000 wins
+waiting for all 3 snapshots @ ep=50000000...
+all 3 snapshots present for ep=50000000 at Sat Apr 25 02:10:30 UTC 2026
+[ep=50000000] baseline vs meanvar
+H2H: baseline_50000000 (snapshots/holdem_64x64_baseline/ep50000000) vs meanvar_50000000 (snapshots/holdem_64x64_meanvar/ep50000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_50000000 avg chips vs meanvar_50000000: +68.30 ± 12.26   (+683.0 ± 122.6 mbb/g)   [13s]
+  -> baseline_50000000 wins
+[ep=50000000] baseline vs neutral
+H2H: baseline_50000000 (snapshots/holdem_64x64_baseline/ep50000000) vs neutral_50000000 (snapshots/holdem_64x64_iqn_neutral/ep50000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+baseline_50000000 avg chips vs neutral_50000000: +71.37 ± 12.43   (+713.7 ± 124.3 mbb/g)   [13s]
+  -> baseline_50000000 wins
+[ep=50000000] meanvar vs neutral
+H2H: meanvar_50000000 (snapshots/holdem_64x64_meanvar/ep50000000) vs neutral_50000000 (snapshots/holdem_64x64_iqn_neutral/ep50000000)
+games=5000 (half each as P0), seed=42
+===========================================================================
+
+meanvar_50000000 avg chips vs neutral_50000000: -15.68 ± 14.16   (-156.8 ± 141.6 mbb/g)   [15s]
+  -> neutral_50000000 wins
+=== H2H 3-way watcher finished Sat Apr 25 02:11:15 UTC 2026 ===

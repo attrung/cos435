@@ -213,7 +213,7 @@ public:
 
     void log_stats(int episode, double avg_reward, double h2h_winrate,
                    double br_loss, double avg_pol_loss, double eps_per_sec,
-                   double elapsed_min) {
+                   double elapsed_min, double frac_changed = 0.0) {
         auto ts = timestamp();
         std::ofstream f(path_, std::ios::app);
         f << "{\"episode\": " << episode
@@ -223,6 +223,7 @@ public:
           << ", \"avg_pol_loss\": " << avg_pol_loss
           << ", \"eps_per_sec\": " << eps_per_sec
           << ", \"elapsed_min\": " << elapsed_min
+          << ", \"frac_action_changed\": " << frac_changed
           << ", \"timestamp\": \"" << ts << "\""
           << ", \"experiment\": \"" << experiment_ << "\"}\n";
     }
@@ -283,6 +284,7 @@ struct AgentOps {
     std::function<int()> br_steps_val;
     std::function<float()> last_br_loss;
     std::function<float()> last_avg_loss;
+    std::function<float()> last_frac_changed;  // IQN var-mode instrumentation; 0 for non-IQN
     std::function<void(const std::string&)> save_weights;
     std::function<void(const std::string&)> save_checkpoint;
     std::function<bool(const std::string&)> load_checkpoint;
@@ -395,6 +397,9 @@ int main(int argc, char* argv[]) {
     std::string risk = "none";
     float risk_p1 = 0.25f, risk_p2 = 1.0f;
     float var_penalty = 0.0f;
+    // Mean-variance training-target controls. Default off → vanilla risk-neutral.
+    std::string var_mode_str = "none";  // {none, train, train_full}
+    float beta = 0.0f;
     std::string eval_script = "eval/eval_holdem_h2h.py";
     std::string hidden_str;  // comma-sep arch override, e.g. "128,64,128,64"
     std::string frozen_p0_dir;  // if set: load p0 from this dir, freeze (no learner, no buffer adds)
@@ -419,6 +424,8 @@ int main(int argc, char* argv[]) {
         else if (a == "--risk-p1") risk_p1 = std::stof(next());
         else if (a == "--risk-p2") risk_p2 = std::stof(next());
         else if (a == "--var-penalty") var_penalty = std::stof(next());
+        else if (a == "--var-mode") var_mode_str = next();
+        else if (a == "--beta") beta = std::stof(next());
         else if (a == "--checkpoint-freq") checkpoint_freq = std::stoi(next());
         else if (a == "--checkpoint-dir") checkpoint_dir = next();
         else if (a == "--worker-batch") worker_batch = std::stoi(next());
@@ -461,6 +468,14 @@ int main(int argc, char* argv[]) {
     if (risk == "cvar") dist = RiskDistortion::CVAR;
     else if (risk == "seeking") dist = RiskDistortion::SEEKING;
 
+    VarMode var_mode = VarMode::NONE;
+    if (var_mode_str == "train") var_mode = VarMode::TRAIN;
+    else if (var_mode_str == "train_full") var_mode = VarMode::TRAIN_FULL;
+    else if (var_mode_str != "none") {
+        std::cerr << "ERROR: --var-mode must be one of {none, train, train_full}\n";
+        return 1;
+    }
+
     for (int p = 0; p < 2; ++p) {
         const std::string& t = (p == 0) ? p0_agent_type : p1_agent_type;
         if (t == "nfsp") {
@@ -479,6 +494,7 @@ int main(int argc, char* argv[]) {
                 [ptr]{ return ptr->br_steps_val(); },
                 [ptr]{ return ptr->last_br_loss(); },
                 [ptr]{ return ptr->last_avg_loss(); },
+                []{ return 0.0f; },  // last_frac_changed: N/A for DQN baseline
                 [ptr](const std::string& path){ ptr->save_weights(path); },
                 [ptr](const std::string& d){ ptr->save_checkpoint(d); },
                 [ptr](const std::string& d){ return ptr->load_checkpoint(d); },
@@ -489,7 +505,7 @@ int main(int argc, char* argv[]) {
                 p, eta, dqn_lr, avg_lr, hidden_sizes, batch_size, dqn_buf, res_buf,
                 learn_every, min_buf, target_update_freq_steps, tau, eps_start, eps_end, eps_duration, gamma,
                 iqn_N, iqn_K, iqn_emb, iqn_kappa, dist, risk_p1, risk_p2, var_penalty,
-                num_updates_per_learn);
+                num_updates_per_learn, var_mode, beta);
             auto* ptr = ag.get();
             ops[p] = {
                 [ptr](std::mt19937& r){ ptr->sample_episode_mode(r); },
@@ -501,6 +517,7 @@ int main(int argc, char* argv[]) {
                 [ptr]{ return ptr->br_steps_val(); },
                 [ptr]{ return ptr->last_br_loss(); },
                 [ptr]{ return ptr->last_avg_loss(); },
+                [ptr]{ return ptr->last_frac_changed(); },
                 [ptr](const std::string& path){ ptr->save_weights(path); },
                 [ptr](const std::string& d){ ptr->save_checkpoint(d); },
                 [ptr](const std::string& d){ return ptr->load_checkpoint(d); },
@@ -697,6 +714,8 @@ int main(int argc, char* argv[]) {
                 double avg_r = reward_accum / log_freq;
                 double avg_br = loss_count > 0 ? br_loss_accum / loss_count : 0.0;
                 double avg_ap = loss_count > 0 ? avg_loss_accum / loss_count : 0.0;
+                // Mean of per-player frac_action_changed (zero if not IQN var-mode).
+                float fc = 0.5f * (ops[0].last_frac_changed() + ops[1].last_frac_changed());
 
                 std::cout << "[Ep " << std::setw(9) << episode << "/" << num_episodes << "] "
                           << std::fixed << std::setprecision(3)
@@ -704,11 +723,12 @@ int main(int argc, char* argv[]) {
                           << " | h2h=" << std::setw(8) << std::setprecision(4) << last_h2h
                           << " | br=" << std::setw(7) << avg_br
                           << " | avg=" << std::setw(7) << avg_ap
+                          << " | fc=" << std::setw(5) << std::setprecision(3) << fc
                           << " | " << std::setprecision(0) << std::setw(6) << eps_sec << " ep/s"
                           << " | " << std::setprecision(1) << elapsed/60 << "m" << std::endl;
 
                 logger.log_stats(episode, avg_r, last_h2h, avg_br, avg_ap,
-                                 eps_sec, elapsed / 60.0);
+                                 eps_sec, elapsed / 60.0, fc);
 
                 reward_accum=0; br_loss_accum=0; avg_loss_accum=0; loss_count=0; t_int=now;
             }
